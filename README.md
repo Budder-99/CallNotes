@@ -1,14 +1,7 @@
-# CallNotes
+# EXTREMLY WIP VIBE CODED MESS RN
 
 A fast, local terminal call-note app for Windows Terminal and PowerShell.
 
-## Run
-
-Install Rust from <https://rustup.rs>, then from this folder:
-
-```powershell
-cargo run
-```
 
 The SQLite database is created as `callnotes.db` beside the executable.
 
