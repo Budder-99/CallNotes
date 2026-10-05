@@ -1,6 +1,6 @@
 # CallNotes
 
-A lightweight, keyboard-driven terminal app for recording support calls. Calls are stored locally; no accounts, network services, or installer are required.
+A lightweight, keyboard-driven terminal app for taking notes during support calls. Everything stored locally; no accounts, network services, or installer are required.
 
 ## Quick start
 
