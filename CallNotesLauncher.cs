@@ -563,8 +563,13 @@ internal static class CallWriter
 
 internal static class CallNotesApp
 {
-    // Call types are also the settings rows and Ctrl+1..Ctrl+3 creation order.
+    // Call types are listed in Ctrl+1..Ctrl+3 order; settings can reorder them.
     private static readonly string[] Types = { "Support", "Internal", "Other" };
+    private static int ShortcutOrderStart { get { return 2; } }
+    private static int CallTypeColorStart { get { return ShortcutOrderStart + Types.Length; } }
+    private static int OutlineColorSetting { get { return CallTypeColorStart + Types.Length; } }
+    private static int TextColorSettingStart { get { return OutlineColorSetting + 1; } }
+    private static int DataDirectorySetting { get { return TextColorSettingStart + textColorKeys.Length; } }
     // Buffers are keyed by call ID so reordering or deleting list entries does
     // not accidentally attach an edited note to a different call.
     private static readonly Dictionary<int, NoteBuffer> NoteBuffers = new Dictionary<int, NoteBuffer>();
@@ -1700,6 +1705,56 @@ internal static class CallNotesApp
         Changed("Created call #" + GetDailyCallNumber(selected));
     }
 
+    private static bool TryParseCallTypeOrder(string value, out string[] order)
+    {
+        order = null;
+        string[] parts = (value ?? "").Split(',');
+        if (parts.Length != Types.Length) return false;
+        string[] parsed = new string[Types.Length];
+        HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < parts.Length; i++)
+        {
+            string part = parts[i].Trim();
+            string match = null;
+            foreach (string type in Types)
+                if (String.Equals(type, part, StringComparison.OrdinalIgnoreCase))
+                {
+                    match = type;
+                    break;
+                }
+            if (match == null || !seen.Add(match)) return false;
+            parsed[i] = match;
+        }
+        order = parsed;
+        return true;
+    }
+
+    private static bool TryMoveCallTypeOrder(string[] order, int index, int direction, out string[] movedOrder)
+    {
+        movedOrder = null;
+        int target = index + direction;
+        if (order == null || order.Length != Types.Length ||
+            index < 0 || index >= order.Length || target < 0 || target >= order.Length)
+            return false;
+        string[] proposed = (string[])order.Clone();
+        string moved = proposed[index];
+        proposed[index] = proposed[target];
+        proposed[target] = moved;
+        movedOrder = proposed;
+        return true;
+    }
+
+    private static bool MoveCallType(int index, int direction)
+    {
+        string[] proposed;
+        if (!TryMoveCallTypeOrder(Types, index, direction, out proposed)) return false;
+        if (!SaveSetting("CallTypeOrder", String.Join(",", proposed))) return false;
+        Array.Copy(proposed, Types, Types.Length);
+        previousFrame = null;
+        status = "Call type shortcut order saved";
+        return true;
+    }
+
     private static string ReadDefaultCallType()
     {
         if (File.Exists(settingsFile))
@@ -1904,10 +1959,10 @@ internal static class CallNotesApp
     // Settings and search screens share the same terminal renderer.
     private static void BuildSettingsRows(string[] rows, int width, int height)
     {
-        rows[1] = " SETTINGS  (Up/Down choose; Left/Right change; Enter edits folder; Esc/F10 closes)";
-        int outlineItem = Types.Length + 2;
-        int textColorStart = outlineItem + 1;
-        int dataDirectoryItem = textColorStart + textColorKeys.Length;
+        rows[1] = " SETTINGS  (Up/Down choose; Left/Right change or reorder; Enter edits folder; Esc/F10 closes)";
+        int outlineItem = OutlineColorSetting;
+        int textColorStart = TextColorSettingStart;
+        int dataDirectoryItem = DataDirectorySetting;
         settingsSelection = Math.Max(0, Math.Min(dataDirectoryItem, settingsSelection));
 
         List<int> menuEntries = new List<int>();
@@ -1915,12 +1970,14 @@ internal static class CallNotesApp
         menuEntries.Add(0);
         menuEntries.Add(1);
         menuEntries.Add(-2);
-        for (int i = 0; i < Types.Length; i++) menuEntries.Add(i + 2);
+        for (int i = 0; i < Types.Length; i++) menuEntries.Add(ShortcutOrderStart + i);
         menuEntries.Add(-3);
-        menuEntries.Add(outlineItem);
+        for (int i = 0; i < Types.Length; i++) menuEntries.Add(CallTypeColorStart + i);
         menuEntries.Add(-4);
-        for (int i = 0; i < textColorKeys.Length; i++) menuEntries.Add(textColorStart + i);
+        menuEntries.Add(outlineItem);
         menuEntries.Add(-5);
+        for (int i = 0; i < textColorKeys.Length; i++) menuEntries.Add(textColorStart + i);
+        menuEntries.Add(-6);
         menuEntries.Add(dataDirectoryItem);
 
         int selectedEntry = menuEntries.IndexOf(settingsSelection);
@@ -1933,7 +1990,10 @@ internal static class CallNotesApp
             int setting = menuEntries[item];
             if (setting < 0)
             {
-                string[] categories = { "GENERAL", "CALL TYPE COLORS", "CALL APPEARANCE", "TEXT COLORS", "STORAGE" };
+                string[] categories = {
+                    "GENERAL", "CALL TYPE SHORTCUTS", "CALL TYPE COLORS",
+                    "CALL APPEARANCE", "TEXT COLORS", "STORAGE"
+                };
                 rows[row] = "  -- " + categories[-setting - 1] + " --";
                 continue;
             }
@@ -1943,9 +2003,14 @@ internal static class CallNotesApp
                 rows[row] = prefix + "Default call type: " + ReadDefaultCallType();
             else if (setting == 1)
                 rows[row] = prefix + "Theme: " + theme;
-            else if (setting < Types.Length + 2)
+            else if (setting >= ShortcutOrderStart && setting < CallTypeColorStart)
             {
-                string callType = Types[setting - 2];
+                int slot = setting - ShortcutOrderStart;
+                rows[row] = prefix + "Ctrl+" + (slot + 1) + ": " + Types[slot] + " (Left/Right reorder)";
+            }
+            else if (setting >= CallTypeColorStart && setting < OutlineColorSetting)
+            {
+                string callType = Types[setting - CallTypeColorStart];
                 ConsoleColor color = GetCallTypeColor(callType);
                 rows[row] = prefix + callType + " color: " + color;
                 settingsColorRows[row] = color;
@@ -2204,7 +2269,7 @@ internal static class CallNotesApp
         if (key.Key == ConsoleKey.Escape || key.Key == ConsoleKey.F10) { settingsOpen = false; status = "Settings closed"; return; }
         if (key.Key == ConsoleKey.UpArrow) settingsSelection = Math.Max(0, settingsSelection - 1);
         else if (key.Key == ConsoleKey.DownArrow)
-            settingsSelection = Math.Min(Types.Length + 3 + textColorKeys.Length, settingsSelection + 1);
+            settingsSelection = Math.Min(DataDirectorySetting, settingsSelection + 1);
         else if (key.Key == ConsoleKey.LeftArrow || key.Key == ConsoleKey.RightArrow)
         {
             int direction = key.Key == ConsoleKey.LeftArrow ? -1 : 1;
@@ -2220,7 +2285,12 @@ internal static class CallNotesApp
                 SaveSetting("Theme", theme);
                 previousFrame = null;
             }
-            else if (settingsSelection == Types.Length + 2)
+            else if (settingsSelection >= ShortcutOrderStart &&
+                settingsSelection < CallTypeColorStart)
+            {
+                MoveCallType(settingsSelection - ShortcutOrderStart, direction);
+            }
+            else if (settingsSelection == OutlineColorSetting)
             {
                 int index = Array.IndexOf(editableCallTypeColors, callBoxOutlineColor);
                 int next = (Math.Max(0, index) + direction + editableCallTypeColors.Length) % editableCallTypeColors.Length;
@@ -2231,10 +2301,10 @@ internal static class CallNotesApp
                     previousFrame = null;
                 }
             }
-            else if (settingsSelection >= Types.Length + 3 &&
-                settingsSelection < Types.Length + 3 + textColorKeys.Length)
+            else if (settingsSelection >= TextColorSettingStart &&
+                settingsSelection < DataDirectorySetting)
             {
-                int colorIndex = settingsSelection - (Types.Length + 3);
+                int colorIndex = settingsSelection - TextColorSettingStart;
                 int index = Array.IndexOf(editableCallTypeColors, GetTextColorSetting(colorIndex));
                 int next = (Math.Max(0, index) + direction + editableCallTypeColors.Length) % editableCallTypeColors.Length;
                 ConsoleColor color = editableCallTypeColors[next];
@@ -2244,9 +2314,10 @@ internal static class CallNotesApp
                     previousFrame = null;
                 }
             }
-            else if (settingsSelection >= 2 && settingsSelection < Types.Length + 2)
+            else if (settingsSelection >= CallTypeColorStart &&
+                settingsSelection < OutlineColorSetting)
             {
-                string callType = Types[settingsSelection - 2];
+                string callType = Types[settingsSelection - CallTypeColorStart];
                 ConsoleColor current = GetCallTypeColor(callType);
                 int index = Array.IndexOf(editableCallTypeColors, current);
                 int next = (Math.Max(0, index) + direction + editableCallTypeColors.Length) % editableCallTypeColors.Length;
@@ -2259,7 +2330,7 @@ internal static class CallNotesApp
             }
         }
         else if (key.Key == ConsoleKey.Enter &&
-            settingsSelection == Types.Length + 3 + textColorKeys.Length)
+            settingsSelection == DataDirectorySetting)
         {
             Console.CursorVisible = true;
             Console.SetCursorPosition(0, Math.Max(0, Console.WindowHeight - 2));
@@ -2279,6 +2350,9 @@ internal static class CallNotesApp
             string settings = File.Exists(settingsFile) ? File.ReadAllText(settingsFile, Encoding.UTF8) : "{}";
             string value = ReadSettingsString(settings, "Theme");
             if (Array.IndexOf(themes, value) >= 0) theme = value;
+            string[] configuredTypeOrder;
+            if (TryParseCallTypeOrder(ReadSettingsString(settings, "CallTypeOrder"), out configuredTypeOrder))
+                Array.Copy(configuredTypeOrder, Types, Types.Length);
             string outline = ReadSettingsString(settings, "CallBoxOutlineColor");
             ConsoleColor parsedOutline;
             if (Enum.TryParse<ConsoleColor>(outline, true, out parsedOutline) &&
@@ -2829,6 +2903,18 @@ internal static class CallNotesApp
                 ReadSettingsString(textColorProbe, "TextColor.Status") != "Yellow" ||
                 !textColorProbe.Contains("\"KeepMe\":true"))
                 throw new InvalidDataException("Text color settings persistence self-test failed.");
+            string typeOrderProbe = SetJsonString(textColorProbe, "CallTypeOrder", "Other,Support,Internal");
+            string[] parsedTypeOrder;
+            string[] movedTypeOrder;
+            if (!TryParseCallTypeOrder(ReadSettingsString(typeOrderProbe, "CallTypeOrder"), out parsedTypeOrder) ||
+                parsedTypeOrder[0] != "Other" || parsedTypeOrder[1] != "Support" ||
+                parsedTypeOrder[2] != "Internal" ||
+                !TryMoveCallTypeOrder(parsedTypeOrder, 0, 1, out movedTypeOrder) ||
+                movedTypeOrder[0] != "Support" || movedTypeOrder[1] != "Other" ||
+                TryParseCallTypeOrder("Support,Support,Other", out parsedTypeOrder) ||
+                TryParseCallTypeOrder("Support,Internal", out parsedTypeOrder) ||
+                !typeOrderProbe.Contains("\"KeepMe\":true"))
+                throw new InvalidDataException("Call type shortcut order persistence/reordering self-test failed.");
             string markdownSample = @"\ / : . , < > ==== ---- KDS kds piks PIKS pos POS *DPOS dpos MSR msr ped PED datto DATTO *Store sn tn inc dns DNS 1 2 3 4 5 6 7 8 9 0 123456789 2e12e1e (qweqw) () {} [] [couldn't hear anything] (this was the fix)";
             Dictionary<string, ConsoleColor> expectedHighlights = new Dictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase)
             {
@@ -3113,6 +3199,29 @@ internal static class CallNotesApp
                         GetDetailLabelColor("Number:", finishedFixture) + ", numberValue=" +
                         GetDetailValueColor("Number:", finishedFixture) + ", noteRow=" +
                         (noteTextByRow.ContainsKey(5) ? noteTextByRow[5] : "(missing)"));
+                string[] originalTypeOrder = (string[])Types.Clone();
+                int previousTypeOrderSelection = settingsSelection;
+                try
+                {
+                    string[] previewOrder;
+                    if (!TryParseCallTypeOrder("Other,Support,Internal", out previewOrder))
+                        throw new InvalidDataException("Call type order parsing self-test failed.");
+                    Array.Copy(previewOrder, Types, Types.Length);
+                    settingsSelection = ShortcutOrderStart;
+                    string[] shortcutRows = new string[24];
+                    for (int row = 0; row < shortcutRows.Length; row++) shortcutRows[row] = "";
+                    BuildSettingsRows(shortcutRows, 80, shortcutRows.Length);
+                    if (!Array.Exists(shortcutRows, delegate(string row) { return row.Contains("Ctrl+1: Other"); }) ||
+                        !Array.Exists(shortcutRows, delegate(string row) { return row.Contains("Ctrl+2: Support"); }) ||
+                        !Array.Exists(shortcutRows, delegate(string row) { return row.Contains("-- CALL TYPE SHORTCUTS --"); }))
+                        throw new InvalidDataException("Call type shortcut order settings preview self-test failed.");
+                }
+                finally
+                {
+                    Array.Copy(originalTypeOrder, Types, Types.Length);
+                    settingsSelection = previousTypeOrderSelection;
+                    settingsColorRows.Clear();
+                }
                 string originalTheme = theme;
                 try
                 {
@@ -3158,7 +3267,7 @@ internal static class CallNotesApp
                             (GetRowStyle(" Ctrl+N create call", 28) & 0x0F) != (int)ConsoleColor.Magenta ||
                             (GetRowStyle(" Color preview", 29) & 0x0F) != (int)ConsoleColor.Green)
                             throw new InvalidDataException("Configurable interface text color self-test failed.");
-                        settingsSelection = Types.Length + 3;
+                        settingsSelection = TextColorSettingStart;
                         string[] textSettingsRows = new string[24];
                         for (int row = 0; row < textSettingsRows.Length; row++) textSettingsRows[row] = "";
                         BuildSettingsRows(textSettingsRows, 80, textSettingsRows.Length);
@@ -3191,7 +3300,7 @@ internal static class CallNotesApp
                     int originalSettingsSelection = settingsSelection;
                     try
                     {
-                        settingsSelection = 2;
+                        settingsSelection = CallTypeColorStart;
                         string[] settingsRows = new string[24];
                         for (int row = 0; row < settingsRows.Length; row++) settingsRows[row] = "";
                         BuildSettingsRows(settingsRows, 80, settingsRows.Length);

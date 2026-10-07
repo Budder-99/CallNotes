@@ -29,6 +29,7 @@ The build uses the C# compiler included with .NET Framework on Windows. The app 
 - The header counts calls started today, and visible call numbers restart each day; older calls remain in history.
 - Record a caller, number, location, incident reference, call type, and notes.
 - Start with generic call types: Support, Internal, and Other.
+- Reorder call types in Settings to choose which type each `Ctrl+1`–`Ctrl+3` shortcut creates; use Left/Right on a shortcut row to move it earlier or later.
 - Browse and search call history, then jump directly to a result.
 - Edit multiline notes and fields with familiar keyboard controls.
 - Copy clean plain-text notes or full call details; export a call as Markdown.
@@ -42,7 +43,7 @@ The build uses the C# compiler included with .NET Framework on Windows. The app 
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl+N` | Create a call using the default type |
-| `Ctrl+1`–`Ctrl+3` | Create a Support, Internal, or Other call |
+| `Ctrl+1`–`Ctrl+3` | Create the call type assigned to that shortcut in Settings (default order: Support, Internal, Other) |
 | `Tab` / `Shift+Tab` | Move between the call's fields and notes |
 | `F6` | Focus the call type; use `Left` / `Right` to change it |
 | `Ctrl+F` | Search calls; select a result and press `Enter` to jump to it |
