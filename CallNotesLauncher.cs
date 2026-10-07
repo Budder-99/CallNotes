@@ -627,6 +627,17 @@ internal static class CallNotesApp
         ConsoleColor.Magenta, ConsoleColor.Yellow, ConsoleColor.White
     };
     private static ConsoleColor callBoxOutlineColor = ConsoleColor.DarkGray;
+    private static readonly string[] textColorKeys = {
+        "TextColor.Heading", "TextColor.Body", "TextColor.Label",
+        "TextColor.Status", "TextColor.Help", "TextColor.Muted",
+        "TextColor.NoteHighlight"
+    };
+    private static readonly string[] textColorLabels = {
+        "Heading text", "Main text", "Field labels", "Status text",
+        "Help and footer", "Secondary text", "Note highlights"
+    };
+    private static readonly Dictionary<string, ConsoleColor> textColors =
+        new Dictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, ConsoleColor> callTypeColors =
         new Dictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<int, ConsoleColor> settingsColorRows =
@@ -1356,7 +1367,8 @@ internal static class CallNotesApp
         foreach (Match match in matches)
         {
             if (match.Index < position) continue;
-            Console.ForegroundColor = call.Status == "Finished" ? GetThemeFinishedColor() : GetThemeForegroundColor();
+            Console.ForegroundColor = call.Status == "Finished" ? GetThemeFinishedColor() :
+                GetConfiguredTextColor("TextColor.Heading", GetThemeForegroundColor());
             Console.Write(content.Substring(position, match.Index - position));
             Console.ForegroundColor = GetHeadingColor(match.Value, call);
             Console.Write(match.Value);
@@ -1364,7 +1376,8 @@ internal static class CallNotesApp
         }
         if (position < content.Length)
         {
-            Console.ForegroundColor = call.Status == "Finished" ? GetThemeFinishedColor() : GetThemeForegroundColor();
+            Console.ForegroundColor = call.Status == "Finished" ? GetThemeFinishedColor() :
+                GetConfiguredTextColor("TextColor.Heading", GetThemeForegroundColor());
             Console.Write(content.Substring(position));
         }
     }
@@ -1377,7 +1390,7 @@ internal static class CallNotesApp
             return GetThemeMutedColor();
         if (String.Equals(token, call.Type, StringComparison.OrdinalIgnoreCase))
             return GetCallTypeColor(call.Type);
-        return GetThemeForegroundColor();
+        return GetConfiguredTextColor("TextColor.Heading", GetThemeForegroundColor());
     }
 
     private static ConsoleColor GetCallTypeColor(string type)
@@ -1404,29 +1417,38 @@ internal static class CallNotesApp
         return color;
     }
 
+    private static ConsoleColor GetConfiguredTextColor(string key, ConsoleColor fallback)
+    {
+        ConsoleColor configured;
+        return textColors.TryGetValue(key, out configured) ? configured : fallback;
+    }
+
     private static ConsoleColor GetThemeForegroundColor()
     {
-        return ConsoleColor.Gray;
+        return GetConfiguredTextColor("TextColor.Body", ConsoleColor.Gray);
     }
 
     private static ConsoleColor GetThemeMutedColor()
     {
-        return theme == "Vintage" ? ConsoleColor.DarkGreen : ConsoleColor.DarkGray;
+        return GetConfiguredTextColor("TextColor.Muted",
+            theme == "Vintage" ? ConsoleColor.DarkGreen : ConsoleColor.DarkGray);
     }
 
     private static ConsoleColor GetThemeAccentColor()
     {
+        ConsoleColor fallback;
         switch (theme)
         {
-            case "Nord": return ConsoleColor.Cyan;
-            case "Campbell": return ConsoleColor.Blue;
-            case "One Half Dark": return ConsoleColor.Magenta;
-            case "Solarized Dark": return ConsoleColor.Green;
-            case "Tango Dark": return ConsoleColor.Yellow;
-            case "Vintage": return ConsoleColor.DarkGreen;
-            case "Monochrome": return ConsoleColor.Gray;
-            default: return ConsoleColor.DarkCyan;
+            case "Nord": fallback = ConsoleColor.Cyan; break;
+            case "Campbell": fallback = ConsoleColor.Blue; break;
+            case "One Half Dark": fallback = ConsoleColor.Magenta; break;
+            case "Solarized Dark": fallback = ConsoleColor.Green; break;
+            case "Tango Dark": fallback = ConsoleColor.Yellow; break;
+            case "Vintage": fallback = ConsoleColor.DarkGreen; break;
+            case "Monochrome": fallback = ConsoleColor.Gray; break;
+            default: fallback = ConsoleColor.DarkCyan; break;
         }
+        return GetConfiguredTextColor("TextColor.Heading", fallback);
     }
 
     private static ConsoleColor GetThemeBorderColor()
@@ -1446,34 +1468,39 @@ internal static class CallNotesApp
 
     private static ConsoleColor GetThemeLabelColor()
     {
+        ConsoleColor fallback;
         switch (theme)
         {
-            case "Nord": return ConsoleColor.Cyan;
-            case "Campbell": return ConsoleColor.DarkCyan;
-            case "One Half Dark": return ConsoleColor.Cyan;
-            case "Solarized Dark": return ConsoleColor.DarkGreen;
-            case "Tango Dark": return ConsoleColor.DarkBlue;
-            case "Vintage": return ConsoleColor.DarkYellow;
-            case "Monochrome": return ConsoleColor.Gray;
-            default: return ConsoleColor.DarkCyan;
+            case "Nord": fallback = ConsoleColor.Cyan; break;
+            case "Campbell": fallback = ConsoleColor.DarkCyan; break;
+            case "One Half Dark": fallback = ConsoleColor.Cyan; break;
+            case "Solarized Dark": fallback = ConsoleColor.DarkGreen; break;
+            case "Tango Dark": fallback = ConsoleColor.DarkBlue; break;
+            case "Vintage": fallback = ConsoleColor.DarkYellow; break;
+            case "Monochrome": fallback = ConsoleColor.Gray; break;
+            default: fallback = ConsoleColor.DarkCyan; break;
         }
+        return GetConfiguredTextColor("TextColor.Label", fallback);
     }
 
     private static ConsoleColor GetThemeFinishedColor()
     {
-        return theme == "Vintage" ? ConsoleColor.DarkGreen : ConsoleColor.DarkGray;
+        return GetConfiguredTextColor("TextColor.Body",
+            theme == "Vintage" ? ConsoleColor.DarkGreen : ConsoleColor.DarkGray);
     }
 
     private static ConsoleColor GetThemeSuccessColor()
     {
-        return theme == "Tango Dark" ? ConsoleColor.Green :
-            theme == "Monochrome" ? ConsoleColor.Gray : ConsoleColor.DarkGreen;
+        return GetConfiguredTextColor("TextColor.Status",
+            theme == "Tango Dark" ? ConsoleColor.Green :
+            theme == "Monochrome" ? ConsoleColor.Gray : ConsoleColor.DarkGreen);
     }
 
     private static ConsoleColor GetThemeWarningColor()
     {
-        return theme == "One Half Dark" ? ConsoleColor.Yellow :
-            theme == "Monochrome" ? ConsoleColor.Gray : ConsoleColor.DarkYellow;
+        return GetConfiguredTextColor("TextColor.Status",
+            theme == "One Half Dark" ? ConsoleColor.Yellow :
+            theme == "Monochrome" ? ConsoleColor.Gray : ConsoleColor.DarkYellow);
     }
 
     private static void WriteDetailSegments(string content, CallRecord call)
@@ -1481,7 +1508,7 @@ internal static class CallNotesApp
         MatchCollection labels = detailLabelPattern.Matches(content);
         if (labels.Count == 0)
         {
-            Console.ForegroundColor = call.Status == "Finished" ? ConsoleColor.DarkGray : ConsoleColor.Gray;
+            Console.ForegroundColor = call.Status == "Finished" ? GetThemeFinishedColor() : GetThemeForegroundColor();
             Console.Write(content);
             return;
         }
@@ -1490,7 +1517,7 @@ internal static class CallNotesApp
         foreach (Match label in labels)
         {
             if (label.Index < position) continue;
-            Console.ForegroundColor = call.Status == "Finished" ? ConsoleColor.DarkGray : ConsoleColor.Gray;
+            Console.ForegroundColor = call.Status == "Finished" ? GetThemeFinishedColor() : GetThemeForegroundColor();
             Console.Write(content.Substring(position, label.Index - position));
             Console.ForegroundColor = GetDetailLabelColor(label.Value, call);
             Console.Write(label.Value);
@@ -1508,16 +1535,16 @@ internal static class CallNotesApp
         }
         if (position < content.Length)
         {
-            Console.ForegroundColor = call.Status == "Finished" ? ConsoleColor.DarkGray : ConsoleColor.Gray;
+            Console.ForegroundColor = call.Status == "Finished" ? GetThemeFinishedColor() : GetThemeForegroundColor();
             Console.Write(content.Substring(position));
         }
     }
 
     private static ConsoleColor GetDetailLabelColor(string label, CallRecord call)
     {
-        if (label.StartsWith("INC", StringComparison.OrdinalIgnoreCase))
-            return theme == "Reference" ? ConsoleColor.DarkMagenta : GetThemeAccentColor();
-        return GetThemeLabelColor();
+        ConsoleColor fallback = label.StartsWith("INC", StringComparison.OrdinalIgnoreCase) &&
+            theme == "Reference" ? ConsoleColor.DarkMagenta : GetThemeLabelColor();
+        return GetConfiguredTextColor("TextColor.Label", fallback);
     }
 
     private static ConsoleColor GetDetailValueColor(string label, CallRecord call)
@@ -1528,15 +1555,22 @@ internal static class CallNotesApp
             label.StartsWith("Duration", StringComparison.OrdinalIgnoreCase))
             return GetThemeForegroundColor();
         if (label.StartsWith("Caller", StringComparison.OrdinalIgnoreCase)) return GetThemeForegroundColor();
-        if (label.StartsWith("Number", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkYellow;
-        if (label.StartsWith("Location", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkCyan;
+        if (label.StartsWith("Number", StringComparison.OrdinalIgnoreCase))
+            return GetConfiguredTextColor("TextColor.Body", ConsoleColor.DarkYellow);
+        if (label.StartsWith("Location", StringComparison.OrdinalIgnoreCase))
+            return GetConfiguredTextColor("TextColor.Body", ConsoleColor.DarkCyan);
         if (label.StartsWith("INC", StringComparison.OrdinalIgnoreCase))
-            return theme == "Reference" ? ConsoleColor.DarkMagenta : GetThemeAccentColor();
-        if (label.StartsWith("Location", StringComparison.OrdinalIgnoreCase)) return GetThemeAccentColor();
+            return GetConfiguredTextColor("TextColor.Body",
+                theme == "Reference" ? ConsoleColor.DarkMagenta : GetThemeAccentColor());
         return GetThemeForegroundColor();
     }
 
     private static ConsoleColor GetNoteHighlightColor(Match match)
+    {
+        return GetConfiguredTextColor("TextColor.NoteHighlight", GetDefaultNoteHighlightColor(match));
+    }
+
+    private static ConsoleColor GetDefaultNoteHighlightColor(Match match)
     {
         if (theme == "Monochrome") return ConsoleColor.Gray;
         if (theme == "Nord" || theme == "One Half Dark")
@@ -1852,34 +1886,81 @@ internal static class CallNotesApp
         return "|" + Clip(content, innerWidth).PadRight(innerWidth) + "|";
     }
 
+    private static ConsoleColor GetTextColorSetting(int index)
+    {
+        switch (index)
+        {
+            case 0: return GetThemeAccentColor();
+            case 1: return GetThemeForegroundColor();
+            case 2: return GetThemeLabelColor();
+            case 3: return GetThemeWarningColor();
+            case 4: return GetConfiguredTextColor("TextColor.Help", GetThemeMutedColor());
+            case 5: return GetThemeMutedColor();
+            case 6: return GetNoteHighlightColor(noteHighlightPattern.Match("KDS"));
+            default: throw new ArgumentOutOfRangeException("index");
+        }
+    }
+
     // Settings and search screens share the same terminal renderer.
     private static void BuildSettingsRows(string[] rows, int width, int height)
     {
-        rows[1] = " SETTINGS  (Up/Down choose; Left/Right change; Enter edits data folder; Esc/F10 closes)";
-        int itemCount = Types.Length + 4;
-        settingsSelection = Math.Max(0, Math.Min(itemCount - 1, settingsSelection));
+        rows[1] = " SETTINGS  (Up/Down choose; Left/Right change; Enter edits folder; Esc/F10 closes)";
+        int outlineItem = Types.Length + 2;
+        int textColorStart = outlineItem + 1;
+        int dataDirectoryItem = textColorStart + textColorKeys.Length;
+        settingsSelection = Math.Max(0, Math.Min(dataDirectoryItem, settingsSelection));
+
+        List<int> menuEntries = new List<int>();
+        menuEntries.Add(-1);
+        menuEntries.Add(0);
+        menuEntries.Add(1);
+        menuEntries.Add(-2);
+        for (int i = 0; i < Types.Length; i++) menuEntries.Add(i + 2);
+        menuEntries.Add(-3);
+        menuEntries.Add(outlineItem);
+        menuEntries.Add(-4);
+        for (int i = 0; i < textColorKeys.Length; i++) menuEntries.Add(textColorStart + i);
+        menuEntries.Add(-5);
+        menuEntries.Add(dataDirectoryItem);
+
+        int selectedEntry = menuEntries.IndexOf(settingsSelection);
         int visibleItems = Math.Max(1, height - 5);
-        int firstItem = Math.Max(0, settingsSelection - visibleItems + 1);
-        int lastItem = Math.Min(itemCount, firstItem + visibleItems);
+        int firstItem = Math.Max(0, selectedEntry - visibleItems + 1);
+        int lastItem = Math.Min(menuEntries.Count, firstItem + visibleItems);
         for (int item = firstItem; item < lastItem; item++)
         {
             int row = 3 + item - firstItem;
-            string prefix = settingsSelection == item ? "> " : "  ";
-            if (item == 0)
-                rows[row] = prefix + "Default call type: " + ReadDefaultCallType();
-            else if (item == 1)
-                rows[row] = prefix + "Theme: " + theme;
-            else if (item < Types.Length + 2)
+            int setting = menuEntries[item];
+            if (setting < 0)
             {
-                string callType = Types[item - 2];
+                string[] categories = { "GENERAL", "CALL TYPE COLORS", "CALL APPEARANCE", "TEXT COLORS", "STORAGE" };
+                rows[row] = "  -- " + categories[-setting - 1] + " --";
+                continue;
+            }
+
+            string prefix = settingsSelection == setting ? "> " : "  ";
+            if (setting == 0)
+                rows[row] = prefix + "Default call type: " + ReadDefaultCallType();
+            else if (setting == 1)
+                rows[row] = prefix + "Theme: " + theme;
+            else if (setting < Types.Length + 2)
+            {
+                string callType = Types[setting - 2];
                 ConsoleColor color = GetCallTypeColor(callType);
                 rows[row] = prefix + callType + " color: " + color;
                 settingsColorRows[row] = color;
             }
-            else if (item == Types.Length + 2)
+            else if (setting == outlineItem)
             {
                 rows[row] = prefix + "Active call outline: " + callBoxOutlineColor + " (bold)";
                 settingsColorRows[row] = GetBoldOutlineColor(callBoxOutlineColor);
+            }
+            else if (setting >= textColorStart && setting < dataDirectoryItem)
+            {
+                int colorIndex = setting - textColorStart;
+                ConsoleColor color = GetTextColorSetting(colorIndex);
+                rows[row] = prefix + textColorLabels[colorIndex] + " color: " + color;
+                settingsColorRows[row] = color;
             }
             else
                 rows[row] = prefix + "Data directory: " +
@@ -2063,9 +2144,9 @@ internal static class CallNotesApp
             return;
         }
         Console.Write(row.Substring(0, colorStart));
-        Console.ForegroundColor = theme == "Monochrome" ? ConsoleColor.Gray : color;
+        Console.ForegroundColor = color;
         Console.Write(colorName);
-        Console.ForegroundColor = theme == "Monochrome" ? ConsoleColor.DarkGray : ConsoleColor.Gray;
+        Console.ForegroundColor = GetThemeForegroundColor();
         Console.Write(row.Substring(colorStart + colorName.Length));
         Console.Write(new string(' ', Math.Max(0, width - row.Length)));
     }
@@ -2086,9 +2167,14 @@ internal static class CallNotesApp
         bool selectedBorder = selectedCardBorderRows.Contains(index);
         bool title = index == 0;
         bool border = row.StartsWith("+", StringComparison.Ordinal) || row.StartsWith("|", StringComparison.Ordinal);
+        bool help = row.IndexOf("Ctrl+", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            row.StartsWith(" Up/Down", StringComparison.Ordinal) ||
+            row.StartsWith(" SETTINGS", StringComparison.Ordinal);
+        bool statusLine = row == " " + status;
         bool footer = row.IndexOf("Ctrl+", StringComparison.OrdinalIgnoreCase) >= 0 ||
             row.StartsWith(" ", StringComparison.Ordinal) && index > 0 &&
-            (row == " " + status || row.StartsWith(" SETTINGS", StringComparison.Ordinal));
+            (statusLine || row.StartsWith(" SETTINGS", StringComparison.Ordinal) ||
+                row.StartsWith(" Up/Down", StringComparison.Ordinal));
         if (title) foreground = GetThemeAccentColor();
         else if (border) foreground = GetThemeBorderColor();
         if (selectedBorder) foreground = GetBoldOutlineColor(callBoxOutlineColor);
@@ -2101,9 +2187,15 @@ internal static class CallNotesApp
             row.IndexOf("INC:", StringComparison.OrdinalIgnoreCase) >= 0 ||
             row.IndexOf("Notes:", StringComparison.OrdinalIgnoreCase) >= 0)
             foreground = GetThemeLabelColor();
-        else if (row.IndexOf("Ctrl+", StringComparison.OrdinalIgnoreCase) >= 0)
-            foreground = GetThemeMutedColor();
-        if (footer && row == " " + status) foreground = GetThemeForegroundColor();
+        else if (row.StartsWith("  -- ", StringComparison.Ordinal) &&
+            row.EndsWith(" --", StringComparison.Ordinal))
+            foreground = GetThemeAccentColor();
+        else if (help)
+            foreground = GetConfiguredTextColor("TextColor.Help",
+                row.IndexOf("Ctrl+", StringComparison.OrdinalIgnoreCase) >= 0
+                    ? GetThemeMutedColor() : GetThemeForegroundColor());
+        if (footer && statusLine)
+            foreground = GetConfiguredTextColor("TextColor.Status", GetThemeForegroundColor());
         return (int)foreground | ((int)background << 4);
     }
 
@@ -2111,7 +2203,8 @@ internal static class CallNotesApp
     {
         if (key.Key == ConsoleKey.Escape || key.Key == ConsoleKey.F10) { settingsOpen = false; status = "Settings closed"; return; }
         if (key.Key == ConsoleKey.UpArrow) settingsSelection = Math.Max(0, settingsSelection - 1);
-        else if (key.Key == ConsoleKey.DownArrow) settingsSelection = Math.Min(Types.Length + 3, settingsSelection + 1);
+        else if (key.Key == ConsoleKey.DownArrow)
+            settingsSelection = Math.Min(Types.Length + 3 + textColorKeys.Length, settingsSelection + 1);
         else if (key.Key == ConsoleKey.LeftArrow || key.Key == ConsoleKey.RightArrow)
         {
             int direction = key.Key == ConsoleKey.LeftArrow ? -1 : 1;
@@ -2138,6 +2231,19 @@ internal static class CallNotesApp
                     previousFrame = null;
                 }
             }
+            else if (settingsSelection >= Types.Length + 3 &&
+                settingsSelection < Types.Length + 3 + textColorKeys.Length)
+            {
+                int colorIndex = settingsSelection - (Types.Length + 3);
+                int index = Array.IndexOf(editableCallTypeColors, GetTextColorSetting(colorIndex));
+                int next = (Math.Max(0, index) + direction + editableCallTypeColors.Length) % editableCallTypeColors.Length;
+                ConsoleColor color = editableCallTypeColors[next];
+                if (SaveSetting(textColorKeys[colorIndex], color.ToString()))
+                {
+                    textColors[textColorKeys[colorIndex]] = color;
+                    previousFrame = null;
+                }
+            }
             else if (settingsSelection >= 2 && settingsSelection < Types.Length + 2)
             {
                 string callType = Types[settingsSelection - 2];
@@ -2152,7 +2258,8 @@ internal static class CallNotesApp
                 }
             }
         }
-        else if (key.Key == ConsoleKey.Enter && settingsSelection == Types.Length + 3)
+        else if (key.Key == ConsoleKey.Enter &&
+            settingsSelection == Types.Length + 3 + textColorKeys.Length)
         {
             Console.CursorVisible = true;
             Console.SetCursorPosition(0, Math.Max(0, Console.WindowHeight - 2));
@@ -2177,6 +2284,15 @@ internal static class CallNotesApp
             if (Enum.TryParse<ConsoleColor>(outline, true, out parsedOutline) &&
                 parsedOutline != ConsoleColor.Black && Enum.IsDefined(typeof(ConsoleColor), parsedOutline))
                 callBoxOutlineColor = parsedOutline;
+            textColors.Clear();
+            foreach (string key in textColorKeys)
+            {
+                string configured = ReadSettingsString(settings, key);
+                ConsoleColor parsed;
+                if (Enum.TryParse<ConsoleColor>(configured, true, out parsed) &&
+                    parsed != ConsoleColor.Black && Enum.IsDefined(typeof(ConsoleColor), parsed))
+                    textColors[key] = parsed;
+            }
             callTypeColors.Clear();
             foreach (string callType in Types)
             {
@@ -2707,6 +2823,12 @@ internal static class CallNotesApp
             if (ReadSettingsString(outlineProbe, "CallBoxOutlineColor") != "DarkGreen" ||
                 !outlineProbe.Contains("\"KeepMe\":true"))
                 throw new InvalidDataException("Active call outline setting persistence self-test failed.");
+            string textColorProbe = SetJsonString(outlineProbe, "TextColor.Heading", "Cyan");
+            textColorProbe = SetJsonString(textColorProbe, "TextColor.Status", "Yellow");
+            if (ReadSettingsString(textColorProbe, "TextColor.Heading") != "Cyan" ||
+                ReadSettingsString(textColorProbe, "TextColor.Status") != "Yellow" ||
+                !textColorProbe.Contains("\"KeepMe\":true"))
+                throw new InvalidDataException("Text color settings persistence self-test failed.");
             string markdownSample = @"\ / : . , < > ==== ---- KDS kds piks PIKS pos POS *DPOS dpos MSR msr ped PED datto DATTO *Store sn tn inc dns DNS 1 2 3 4 5 6 7 8 9 0 123456789 2e12e1e (qweqw) () {} [] [couldn't hear anything] (this was the fix)";
             Dictionary<string, ConsoleColor> expectedHighlights = new Dictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase)
             {
@@ -3011,6 +3133,61 @@ internal static class CallNotesApp
                     if (GetCallTypeColor("Support") != ConsoleColor.Cyan)
                         throw new InvalidDataException("Call type color override self-test failed.");
                     callTypeColors["Support"] = originalSupportColor;
+                    Dictionary<string, ConsoleColor> originalTextColors =
+                        new Dictionary<string, ConsoleColor>(textColors, StringComparer.OrdinalIgnoreCase);
+                    string originalStatus = status;
+                    int originalSelection = settingsSelection;
+                    try
+                    {
+                        textColors.Clear();
+                        textColors["TextColor.Heading"] = ConsoleColor.Cyan;
+                        textColors["TextColor.Body"] = ConsoleColor.White;
+                        textColors["TextColor.Label"] = ConsoleColor.Yellow;
+                        textColors["TextColor.Status"] = ConsoleColor.Green;
+                        textColors["TextColor.Help"] = ConsoleColor.Magenta;
+                        textColors["TextColor.Muted"] = ConsoleColor.Blue;
+                        textColors["TextColor.NoteHighlight"] = ConsoleColor.Red;
+                        status = "Color preview";
+                        if (GetThemeAccentColor() != ConsoleColor.Cyan ||
+                            GetThemeForegroundColor() != ConsoleColor.White ||
+                            GetDetailLabelColor("Caller:", finishedFixture) != ConsoleColor.Yellow ||
+                            GetDetailValueColor("Number:", finishedFixture) != ConsoleColor.White ||
+                            GetThemeWarningColor() != ConsoleColor.Green ||
+                            GetThemeMutedColor() != ConsoleColor.Blue ||
+                            GetNoteHighlightColor(noteHighlightPattern.Match("KDS")) != ConsoleColor.Red ||
+                            (GetRowStyle(" Ctrl+N create call", 28) & 0x0F) != (int)ConsoleColor.Magenta ||
+                            (GetRowStyle(" Color preview", 29) & 0x0F) != (int)ConsoleColor.Green)
+                            throw new InvalidDataException("Configurable interface text color self-test failed.");
+                        settingsSelection = Types.Length + 3;
+                        string[] textSettingsRows = new string[24];
+                        for (int row = 0; row < textSettingsRows.Length; row++) textSettingsRows[row] = "";
+                        BuildSettingsRows(textSettingsRows, 80, textSettingsRows.Length);
+                        bool foundHeadingColor = false;
+                        bool foundTextCategory = false;
+                        for (int row = 0; row < textSettingsRows.Length; row++)
+                        {
+                            if (textSettingsRows[row].Contains("-- TEXT COLORS --"))
+                                foundTextCategory = true;
+                            if (textSettingsRows[row].Contains("Heading text color: Cyan"))
+                            {
+                                foundHeadingColor = true;
+                                if (!settingsColorRows.ContainsKey(row) ||
+                                    settingsColorRows[row] != ConsoleColor.Cyan)
+                                    throw new InvalidDataException("Heading text color preview self-test failed.");
+                            }
+                        }
+                        if (!foundHeadingColor || !foundTextCategory)
+                            throw new InvalidDataException("Categorized text color settings are missing.");
+                    }
+                    finally
+                    {
+                        textColors.Clear();
+                        foreach (KeyValuePair<string, ConsoleColor> entry in originalTextColors)
+                            textColors[entry.Key] = entry.Value;
+                        status = originalStatus;
+                        settingsSelection = originalSelection;
+                        settingsColorRows.Clear();
+                    }
                     int originalSettingsSelection = settingsSelection;
                     try
                     {

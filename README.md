@@ -34,6 +34,7 @@ The build uses the C# compiler included with .NET Framework on Windows. The app 
 - Copy clean plain-text notes or full call details; export a call as Markdown.
 - Choose from Reference, Campbell, Nord, One Half Dark, Solarized Dark, Tango Dark, Vintage, and Monochrome themes.
 - Configure a bold, colored outline for the active call and customize call-type colors.
+- Use grouped settings for general options, call-type colors, appearance, text colors, and storage. Text colors can be customized independently for headings, main text, field labels, status, help/footer, secondary text, and note highlights.
 - View call start/end times and duration for completed calls.
 
 ## Keyboard shortcuts
@@ -53,7 +54,7 @@ The build uses the C# compiler included with .NET Framework on Windows. The app 
 | `Ctrl+E` | Copy the selected call's notes |
 | `Ctrl+C` | Copy the selected call's details and notes |
 | `Ctrl+Shift+E` | Export the selected call as Markdown |
-| `F10` | Open settings |
+| `F10` | Open grouped settings; use `Up` / `Down` to choose and `Left` / `Right` to change options |
 | `Ctrl+S` | Save now |
 | `Ctrl+Q` | Save and quit |
 | `Ctrl+D` | Delete the selected call (confirmation required) |
