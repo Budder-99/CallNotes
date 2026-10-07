@@ -1,7 +1,6 @@
 # CallNotes
 
-A lightweight, keyboard-driven terminal app for taking notes during support calls. Everything stored locally; no accounts, network services, or installer are required.
-<img width="1235" height="644" alt="image" src="https://github.com/user-attachments/assets/b019d4bc-eb66-449c-aa59-a819cff889d0" />
+A lightweight, keyboard-driven terminal app for recording support calls. Calls are stored locally; no accounts, network services, or installer are required.
 
 ## Quick start
 
@@ -24,12 +23,14 @@ The build uses the C# compiler included with .NET Framework on Windows. The app 
 ## Features
 
 - Create calls instantly with a timestamp; notes save automatically.
+- The header counts calls started today, and visible call numbers restart each day; older calls remain in history.
 - Record a caller, number, location, incident reference, call type, and notes.
 - Start with generic call types: Support, Internal, and Other.
 - Browse and search call history, then jump directly to a result.
 - Edit multiline notes and fields with familiar keyboard controls.
 - Copy clean plain-text notes or full call details; export a call as Markdown.
-- Choose a subdued theme and configure call-type colors.
+- Choose from Reference, Campbell, Nord, One Half Dark, Solarized Dark, Tango Dark, Vintage, and Monochrome themes.
+- Configure a bold, colored outline for the active call and customize call-type colors.
 - View call start/end times and duration for completed calls.
 
 ## Keyboard shortcuts

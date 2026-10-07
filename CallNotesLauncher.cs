@@ -615,6 +615,10 @@ internal static class CallNotesApp
         @"(?<marker>[\[\]{}*#])",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
     private static string theme = "Reference";
+    private static readonly string[] themes = {
+        "Reference", "Campbell", "Nord", "One Half Dark",
+        "Solarized Dark", "Tango Dark", "Vintage", "Monochrome"
+    };
     private static readonly ConsoleColor[] editableCallTypeColors = {
         ConsoleColor.DarkGray, ConsoleColor.DarkBlue, ConsoleColor.DarkGreen,
         ConsoleColor.DarkCyan, ConsoleColor.DarkRed, ConsoleColor.DarkMagenta,
@@ -622,6 +626,7 @@ internal static class CallNotesApp
         ConsoleColor.Green, ConsoleColor.Cyan, ConsoleColor.Red,
         ConsoleColor.Magenta, ConsoleColor.Yellow, ConsoleColor.White
     };
+    private static ConsoleColor callBoxOutlineColor = ConsoleColor.DarkGray;
     private static readonly Dictionary<string, ConsoleColor> callTypeColors =
         new Dictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<int, ConsoleColor> settingsColorRows =
@@ -898,7 +903,8 @@ internal static class CallNotesApp
         catch { return; }
         string[] rows = new string[height];
         for (int i = 0; i < rows.Length; i++) rows[i] = "";
-        rows[0] = " CALLNOTES / " + Path.GetFileName(dataDirectory) + " [" + calls.Count + " calls]  " + theme;
+        rows[0] = " CALLNOTES / " + Path.GetFileName(dataDirectory) + " [" +
+            CountCallsForDate(calls, DateTime.Today) + " calls today]  " + theme;
         selectedCardRows.Clear();
         selectedCardBorderRows.Clear();
         finishedNoteRows.Clear();
@@ -926,7 +932,8 @@ internal static class CallNotesApp
                     Console.SetCursorPosition(0, y);
                     string noteText;
                     if (noteTextByRow.TryGetValue(y, out noteText))
-                        WriteNoteRow(noteText, width, rowStyle, finishedNoteRows.Contains(y));
+                        WriteNoteRow(noteText, width, rowStyle, finishedNoteRows.Contains(y),
+                            selectedCardRows.Contains(y));
                     else if (searchOpen)
                         Console.Write(visible.PadRight(width));
                     else if (settingsColorRows.ContainsKey(y))
@@ -973,7 +980,7 @@ internal static class CallNotesApp
         if (height < 12)
         {
             CallRecord compact = calls[selected];
-            string summary = "> Call #" + compact.Id + " / " + compact.Type +
+            string summary = "> Call #" + GetDailyCallNumber(selected) + " / " + compact.Type +
                 " [" + compact.Status + "] Number: " + compact.Number;
             rows[2] = BoxContent(summary, width);
             selectedCardRows.Add(2);
@@ -999,7 +1006,8 @@ internal static class CallNotesApp
         historyTop = Math.Max(0, Math.Min(historyTop, Math.Max(0, calls.Count - visibleCards)));
         if (selected < historyTop) historyTop = selected;
         if (selected >= historyTop + visibleCards) historyTop = selected - visibleCards + 1;
-        rows[1] = " HISTORY  (showing " + (historyTop + 1) + "-" + Math.Min(calls.Count, historyTop + visibleCards) + ")   Selected #" + calls[selected].Id;
+        rows[1] = " HISTORY  (showing " + (historyTop + 1) + "-" + Math.Min(calls.Count, historyTop + visibleCards) +
+            ")   Selected #" + GetDailyCallNumber(selected);
         int y = 2;
         int selectedFieldX = 2;
         int selectedFieldY = y + 1;
@@ -1011,7 +1019,7 @@ internal static class CallNotesApp
             int cardHeight = noteRows + 6;
             if (y + cardHeight > contentEnd) break;
             string marker = i == selected ? ">" : " ";
-            string heading = marker + " Call #" + c.Id + " / ";
+            string heading = marker + " Call #" + GetDailyCallNumber(i) + " / ";
             rows[y] = BoxBorder(width);
             if (isSelected) selectedCardBorderRows.Add(y);
             rows[y + 1] = BoxContent(heading + c.Type + "  [" + c.Status + "]", width);
@@ -1106,6 +1114,55 @@ internal static class CallNotesApp
             timing.Append("  |  Duration: ").Append(FormatCallDuration(ended - started));
         }
         return timing.ToString();
+    }
+
+    private static int CountCallsForDate(IList<CallRecord> history, DateTime date)
+    {
+        int count = 0;
+        DateTime targetDate = date.Date;
+        foreach (CallRecord call in history)
+        {
+            DateTime started;
+            if (call != null &&
+                DateTime.TryParse(call.StartTime, CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind, out started) &&
+                GetLocalCallDate(started) == targetDate)
+                count++;
+        }
+        return count;
+    }
+
+    private static int GetDailyCallNumber(int callIndex)
+    {
+        if (callIndex < 0 || callIndex >= calls.Count) return 0;
+        DateTime targetStart;
+        if (!DateTime.TryParse(calls[callIndex].StartTime, CultureInfo.InvariantCulture,
+            DateTimeStyles.RoundtripKind, out targetStart)) return 0;
+
+        DateTime targetDate = targetStart.ToLocalTime().Date;
+        int number = 0;
+        for (int i = 0; i <= callIndex; i++)
+        {
+            DateTime started;
+            if (DateTime.TryParse(calls[i].StartTime, CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind, out started) &&
+                GetLocalCallDate(started) == targetDate)
+                number++;
+        }
+        return number;
+    }
+
+    private static DateTime GetLocalCallDate(DateTime started)
+    {
+        return started.Kind == DateTimeKind.Utc ? started.ToLocalTime().Date : started.Date;
+    }
+
+    private static int GetDailyCallNumber(CallRecord call)
+    {
+        for (int i = 0; i < calls.Count; i++)
+            if (calls[i].Id == call.Id)
+                return GetDailyCallNumber(i);
+        return 0;
     }
 
     private static string FormatCallDateTime(DateTime value)
@@ -1211,12 +1268,12 @@ internal static class CallNotesApp
         }
     }
 
-    private static void WriteNoteRow(string noteText, int width, int rowStyle, bool finished)
+    private static void WriteNoteRow(string noteText, int width, int rowStyle, bool finished, bool activeCall)
     {
         ConsoleColor baseForeground = (ConsoleColor)(rowStyle & 0x0F);
         ConsoleColor baseBackground = (ConsoleColor)((rowStyle >> 4) & 0x0F);
         // Completed calls are intentionally plain gray for easier history review.
-        if (finished) baseForeground = ConsoleColor.DarkGray;
+        if (finished) baseForeground = GetThemeFinishedColor();
         Console.ForegroundColor = baseForeground;
         Console.BackgroundColor = baseBackground;
         if (width < 2)
@@ -1224,12 +1281,14 @@ internal static class CallNotesApp
             Console.Write(Clip(noteText, width));
             return;
         }
-        Console.Write("| ");
+        Console.ForegroundColor = activeCall ? GetBoldOutlineColor(callBoxOutlineColor) : GetThemeBorderColor();
+        Console.Write('|');
+        Console.ForegroundColor = baseForeground;
+        Console.Write(' ');
         bool hasLabel = noteText.StartsWith("Notes: ", StringComparison.Ordinal);
         if (hasLabel)
         {
-            Console.ForegroundColor = finished ? ConsoleColor.DarkGray :
-                theme == "Monochrome" ? ConsoleColor.Gray : ConsoleColor.DarkCyan;
+            Console.ForegroundColor = finished ? GetThemeFinishedColor() : GetThemeLabelColor();
             Console.Write("Notes:");
             Console.ForegroundColor = baseForeground;
             noteText = noteText.Substring(6);
@@ -1258,12 +1317,14 @@ internal static class CallNotesApp
         }
         Console.ForegroundColor = baseForeground;
         Console.Write(new string(' ', Math.Max(0, width - 3 - (hasLabel ? 6 : 0) - visible.Length)));
+        Console.ForegroundColor = activeCall ? GetBoldOutlineColor(callBoxOutlineColor) : GetThemeBorderColor();
         Console.Write('|');
     }
 
     private static void WriteCallCardRow(string row, int width, CallRecord call, bool header)
     {
-        ConsoleColor borderColor = theme == "Monochrome" ? ConsoleColor.DarkGray : ConsoleColor.DarkCyan;
+        bool activeCall = selected >= 0 && selected < calls.Count && calls[selected].Id == call.Id;
+        ConsoleColor borderColor = activeCall ? GetBoldOutlineColor(callBoxOutlineColor) : GetThemeBorderColor();
         Console.ForegroundColor = borderColor;
         Console.BackgroundColor = ConsoleColor.Black;
         if (width < 2)
@@ -1295,7 +1356,7 @@ internal static class CallNotesApp
         foreach (Match match in matches)
         {
             if (match.Index < position) continue;
-            Console.ForegroundColor = call.Status == "Finished" ? ConsoleColor.DarkGray : ConsoleColor.Gray;
+            Console.ForegroundColor = call.Status == "Finished" ? GetThemeFinishedColor() : GetThemeForegroundColor();
             Console.Write(content.Substring(position, match.Index - position));
             Console.ForegroundColor = GetHeadingColor(match.Value, call);
             Console.Write(match.Value);
@@ -1303,7 +1364,7 @@ internal static class CallNotesApp
         }
         if (position < content.Length)
         {
-            Console.ForegroundColor = call.Status == "Finished" ? ConsoleColor.DarkGray : ConsoleColor.Gray;
+            Console.ForegroundColor = call.Status == "Finished" ? GetThemeFinishedColor() : GetThemeForegroundColor();
             Console.Write(content.Substring(position));
         }
     }
@@ -1311,17 +1372,17 @@ internal static class CallNotesApp
     private static ConsoleColor GetHeadingColor(string token, CallRecord call)
     {
         if (token.StartsWith("[", StringComparison.Ordinal))
-            return call.Status == "Finished" ? ConsoleColor.DarkGreen : ConsoleColor.DarkYellow;
+            return call.Status == "Finished" ? GetThemeSuccessColor() : GetThemeWarningColor();
         if (token.IndexOf(':') >= 0 || Char.IsDigit(token[0]))
-            return ConsoleColor.DarkGray;
+            return GetThemeMutedColor();
         if (String.Equals(token, call.Type, StringComparison.OrdinalIgnoreCase))
             return GetCallTypeColor(call.Type);
-        return ConsoleColor.Gray;
+        return GetThemeForegroundColor();
     }
 
     private static ConsoleColor GetCallTypeColor(string type)
     {
-        if (theme == "Monochrome") return ConsoleColor.Gray;
+        if (theme == "Monochrome") return GetThemeForegroundColor();
         ConsoleColor configured;
         return callTypeColors.TryGetValue(type ?? "", out configured)
             ? configured : GetDefaultCallTypeColor(type);
@@ -1333,6 +1394,86 @@ internal static class CallNotesApp
         if (String.Equals(type, "Internal", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkYellow;
         if (String.Equals(type, "Other", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkMagenta;
         return ConsoleColor.Gray;
+    }
+
+    private static ConsoleColor GetBoldOutlineColor(ConsoleColor color)
+    {
+        if (color == ConsoleColor.DarkGray) return ConsoleColor.Gray;
+        if (color >= ConsoleColor.Black && color <= ConsoleColor.DarkYellow)
+            return (ConsoleColor)((int)color + 8);
+        return color;
+    }
+
+    private static ConsoleColor GetThemeForegroundColor()
+    {
+        return ConsoleColor.Gray;
+    }
+
+    private static ConsoleColor GetThemeMutedColor()
+    {
+        return theme == "Vintage" ? ConsoleColor.DarkGreen : ConsoleColor.DarkGray;
+    }
+
+    private static ConsoleColor GetThemeAccentColor()
+    {
+        switch (theme)
+        {
+            case "Nord": return ConsoleColor.Cyan;
+            case "Campbell": return ConsoleColor.Blue;
+            case "One Half Dark": return ConsoleColor.Magenta;
+            case "Solarized Dark": return ConsoleColor.Green;
+            case "Tango Dark": return ConsoleColor.Yellow;
+            case "Vintage": return ConsoleColor.DarkGreen;
+            case "Monochrome": return ConsoleColor.Gray;
+            default: return ConsoleColor.DarkCyan;
+        }
+    }
+
+    private static ConsoleColor GetThemeBorderColor()
+    {
+        switch (theme)
+        {
+            case "Nord": return ConsoleColor.DarkCyan;
+            case "Campbell": return ConsoleColor.DarkBlue;
+            case "One Half Dark": return ConsoleColor.DarkBlue;
+            case "Solarized Dark": return ConsoleColor.DarkBlue;
+            case "Tango Dark": return ConsoleColor.DarkMagenta;
+            case "Vintage": return ConsoleColor.DarkGreen;
+            case "Monochrome": return ConsoleColor.DarkGray;
+            default: return ConsoleColor.DarkGray;
+        }
+    }
+
+    private static ConsoleColor GetThemeLabelColor()
+    {
+        switch (theme)
+        {
+            case "Nord": return ConsoleColor.Cyan;
+            case "Campbell": return ConsoleColor.DarkCyan;
+            case "One Half Dark": return ConsoleColor.Cyan;
+            case "Solarized Dark": return ConsoleColor.DarkGreen;
+            case "Tango Dark": return ConsoleColor.DarkBlue;
+            case "Vintage": return ConsoleColor.DarkYellow;
+            case "Monochrome": return ConsoleColor.Gray;
+            default: return ConsoleColor.DarkCyan;
+        }
+    }
+
+    private static ConsoleColor GetThemeFinishedColor()
+    {
+        return theme == "Vintage" ? ConsoleColor.DarkGreen : ConsoleColor.DarkGray;
+    }
+
+    private static ConsoleColor GetThemeSuccessColor()
+    {
+        return theme == "Tango Dark" ? ConsoleColor.Green :
+            theme == "Monochrome" ? ConsoleColor.Gray : ConsoleColor.DarkGreen;
+    }
+
+    private static ConsoleColor GetThemeWarningColor()
+    {
+        return theme == "One Half Dark" ? ConsoleColor.Yellow :
+            theme == "Monochrome" ? ConsoleColor.Gray : ConsoleColor.DarkYellow;
     }
 
     private static void WriteDetailSegments(string content, CallRecord call)
@@ -1374,39 +1515,55 @@ internal static class CallNotesApp
 
     private static ConsoleColor GetDetailLabelColor(string label, CallRecord call)
     {
-        if (theme == "Monochrome") return ConsoleColor.Gray;
-        if (label.StartsWith("INC", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkMagenta;
-        if (label.StartsWith("Caller", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkCyan;
-        return ConsoleColor.DarkCyan;
+        if (label.StartsWith("INC", StringComparison.OrdinalIgnoreCase))
+            return theme == "Reference" ? ConsoleColor.DarkMagenta : GetThemeAccentColor();
+        return GetThemeLabelColor();
     }
 
     private static ConsoleColor GetDetailValueColor(string label, CallRecord call)
     {
-        if (theme == "Monochrome") return call.Status == "Finished" ? ConsoleColor.DarkGray : ConsoleColor.Gray;
+        if (theme == "Monochrome") return call.Status == "Finished" ? GetThemeFinishedColor() : GetThemeForegroundColor();
         if (label.StartsWith("Started", StringComparison.OrdinalIgnoreCase) ||
             label.StartsWith("Ended", StringComparison.OrdinalIgnoreCase) ||
             label.StartsWith("Duration", StringComparison.OrdinalIgnoreCase))
-            return ConsoleColor.Gray;
-        if (label.StartsWith("Caller", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.Gray;
+            return GetThemeForegroundColor();
+        if (label.StartsWith("Caller", StringComparison.OrdinalIgnoreCase)) return GetThemeForegroundColor();
         if (label.StartsWith("Number", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkYellow;
         if (label.StartsWith("Location", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkCyan;
-        if (label.StartsWith("INC", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkMagenta;
-        if (label.StartsWith("Location", StringComparison.OrdinalIgnoreCase)) return ConsoleColor.DarkCyan;
-        return ConsoleColor.Gray;
+        if (label.StartsWith("INC", StringComparison.OrdinalIgnoreCase))
+            return theme == "Reference" ? ConsoleColor.DarkMagenta : GetThemeAccentColor();
+        if (label.StartsWith("Location", StringComparison.OrdinalIgnoreCase)) return GetThemeAccentColor();
+        return GetThemeForegroundColor();
     }
 
     private static ConsoleColor GetNoteHighlightColor(Match match)
     {
         if (theme == "Monochrome") return ConsoleColor.Gray;
-        if (theme == "Nord")
+        if (theme == "Nord" || theme == "One Half Dark")
         {
-            if (match.Groups["orange"].Success) return ConsoleColor.DarkYellow;
+            if (match.Groups["orange"].Success) return theme == "Nord" ? ConsoleColor.DarkYellow : ConsoleColor.Red;
             if (match.Groups["yellow"].Success) return ConsoleColor.Yellow;
             if (match.Groups["blue"].Success) return ConsoleColor.Cyan;
             if (match.Groups["pink"].Success) return ConsoleColor.Magenta;
             if (match.Groups["green"].Success) return ConsoleColor.Green;
-            if (match.Groups["cyan"].Success) return ConsoleColor.DarkCyan;
+            if (match.Groups["cyan"].Success) return theme == "Nord" ? ConsoleColor.DarkCyan : ConsoleColor.Blue;
             return ConsoleColor.DarkGray;
+        }
+        if (theme == "Solarized Dark" || theme == "Tango Dark" || theme == "Vintage")
+        {
+            if (match.Groups["orange"].Success)
+                return theme == "Tango Dark" ? ConsoleColor.Red : ConsoleColor.DarkYellow;
+            if (match.Groups["yellow"].Success)
+                return theme == "Vintage" ? ConsoleColor.DarkYellow : ConsoleColor.Yellow;
+            if (match.Groups["blue"].Success)
+                return theme == "Vintage" ? ConsoleColor.DarkCyan : ConsoleColor.Blue;
+            if (match.Groups["pink"].Success)
+                return theme == "Vintage" ? ConsoleColor.DarkGreen : ConsoleColor.Magenta;
+            if (match.Groups["green"].Success)
+                return theme == "Vintage" ? ConsoleColor.DarkGreen : ConsoleColor.Green;
+            if (match.Groups["cyan"].Success)
+                return theme == "Vintage" ? ConsoleColor.DarkGray : ConsoleColor.Cyan;
+            return GetThemeMutedColor();
         }
         if (match.Groups["orange"].Success) return ConsoleColor.DarkYellow;
         if (match.Groups["yellow"].Success) return ConsoleColor.Yellow;
@@ -1506,7 +1663,7 @@ internal static class CallNotesApp
         focus = "Number";
         fieldCaret = 0;
         caret = 0;
-        Changed("Created call #" + call.Id);
+        Changed("Created call #" + GetDailyCallNumber(selected));
     }
 
     private static string ReadDefaultCallType()
@@ -1530,7 +1687,7 @@ internal static class CallNotesApp
         selected = Math.Max(0, Math.Min(calls.Count - 1, selected + delta));
         focus = "Notes";
         caret = GetNotes(selected);
-        status = "Selected call #" + calls[selected].Id;
+        status = "Selected call #" + GetDailyCallNumber(selected);
     }
 
     private static void CycleField()
@@ -1583,7 +1740,7 @@ internal static class CallNotesApp
         RecordEdit(new EditAction { Field = "Notes", Position = caret, Removed = "", Inserted = text });
         GetNoteBuffer(selected).Insert(caret, text);
         caret += text.Length;
-        Changed("Edited call #" + calls[selected].Id);
+        Changed("Edited call #" + GetDailyCallNumber(selected));
     }
 
     private static void Backspace()
@@ -1593,7 +1750,7 @@ internal static class CallNotesApp
         string removed = GetNoteBuffer(selected).GetRange(caret - 1, 1);
         RecordEdit(new EditAction { Field = "Notes", Position = caret - 1, Removed = removed, Inserted = "" });
         GetNoteBuffer(selected).Remove(--caret, 1);
-        Changed("Edited call #" + calls[selected].Id);
+        Changed("Edited call #" + GetDailyCallNumber(selected));
     }
 
     private static void Delete()
@@ -1603,7 +1760,7 @@ internal static class CallNotesApp
         string removed = GetNoteBuffer(selected).GetRange(caret, 1);
         RecordEdit(new EditAction { Field = "Notes", Position = caret, Removed = removed, Inserted = "" });
         GetNoteBuffer(selected).Remove(caret, 1);
-        Changed("Edited call #" + calls[selected].Id);
+        Changed("Edited call #" + GetDailyCallNumber(selected));
     }
 
     private static void DeleteField(bool backward)
@@ -1623,7 +1780,7 @@ internal static class CallNotesApp
         RecordEdit(new EditAction { Field = "Notes", Position = start, Removed = removed, Inserted = "" });
         b.Remove(start, end - start);
         caret = start;
-        Changed("Edited call #" + calls[selected].Id);
+        Changed("Edited call #" + GetDailyCallNumber(selected));
     }
 
     private static void DeleteFieldWord(bool backward)
@@ -1699,7 +1856,7 @@ internal static class CallNotesApp
     private static void BuildSettingsRows(string[] rows, int width, int height)
     {
         rows[1] = " SETTINGS  (Up/Down choose; Left/Right change; Enter edits data folder; Esc/F10 closes)";
-        int itemCount = Types.Length + 3;
+        int itemCount = Types.Length + 4;
         settingsSelection = Math.Max(0, Math.Min(itemCount - 1, settingsSelection));
         int visibleItems = Math.Max(1, height - 5);
         int firstItem = Math.Max(0, settingsSelection - visibleItems + 1);
@@ -1711,13 +1868,18 @@ internal static class CallNotesApp
             if (item == 0)
                 rows[row] = prefix + "Default call type: " + ReadDefaultCallType();
             else if (item == 1)
-                rows[row] = prefix + "Theme: " + theme + " (Reference / Nord / Monochrome)";
+                rows[row] = prefix + "Theme: " + theme;
             else if (item < Types.Length + 2)
             {
                 string callType = Types[item - 2];
                 ConsoleColor color = GetCallTypeColor(callType);
                 rows[row] = prefix + callType + " color: " + color;
                 settingsColorRows[row] = color;
+            }
+            else if (item == Types.Length + 2)
+            {
+                rows[row] = prefix + "Active call outline: " + callBoxOutlineColor + " (bold)";
+                settingsColorRows[row] = GetBoldOutlineColor(callBoxOutlineColor);
             }
             else
                 rows[row] = prefix + "Data directory: " +
@@ -1767,7 +1929,8 @@ internal static class CallNotesApp
                     if (DateTime.TryParse(call.StartTime, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out parsedDate))
                         date = FormatCallDateTime(parsedDate);
                     string marker = result == searchSelection ? "> " : "  ";
-                    rows[5 + result - first] = marker + "Call #" + call.Id + " [" + call.Type + "] " + date + details;
+                    rows[5 + result - first] = marker + "Call #" + GetDailyCallNumber(searchMatches[result]) +
+                        " [" + call.Type + "] " + date + details;
                 }
                 searchCursorY = 3;
             }
@@ -1849,7 +2012,7 @@ internal static class CallNotesApp
             caret = GetNotes(selected);
             searchOpen = false;
             previousFrame = null;
-            status = "Jumped to call #" + calls[selected].Id;
+            status = "Jumped to call #" + GetDailyCallNumber(selected);
         }
     }
 
@@ -1918,41 +2081,29 @@ internal static class CallNotesApp
 
     private static int GetRowStyle(string row, int index)
     {
-        ConsoleColor foreground = ConsoleColor.Gray;
+        ConsoleColor foreground = GetThemeForegroundColor();
         ConsoleColor background = ConsoleColor.Black;
-        bool selected = selectedCardRows.Contains(index);
         bool selectedBorder = selectedCardBorderRows.Contains(index);
         bool title = index == 0;
         bool border = row.StartsWith("+", StringComparison.Ordinal) || row.StartsWith("|", StringComparison.Ordinal);
         bool footer = row.IndexOf("Ctrl+", StringComparison.OrdinalIgnoreCase) >= 0 ||
             row.StartsWith(" ", StringComparison.Ordinal) && index > 0 &&
             (row == " " + status || row.StartsWith(" SETTINGS", StringComparison.Ordinal));
-        if (theme == "Monochrome")
-        {
-            foreground = title || selectedBorder ? ConsoleColor.Gray : selected ? ConsoleColor.Gray : ConsoleColor.DarkGray;
-        }
-        else if (theme == "Nord")
-        {
-            foreground = title || selectedBorder ? ConsoleColor.DarkCyan :
-                border ? ConsoleColor.DarkGray : ConsoleColor.Gray;
-        }
-        else
-        {
-            foreground = title || selectedBorder ? ConsoleColor.DarkCyan :
-                border ? ConsoleColor.DarkGray : ConsoleColor.Gray;
-        }
+        if (title) foreground = GetThemeAccentColor();
+        else if (border) foreground = GetThemeBorderColor();
+        if (selectedBorder) foreground = GetBoldOutlineColor(callBoxOutlineColor);
         if (row.IndexOf("[Finished]", StringComparison.OrdinalIgnoreCase) >= 0)
-            foreground = theme == "Monochrome" ? ConsoleColor.Gray : ConsoleColor.DarkGreen;
+            foreground = GetThemeSuccessColor();
         else if (row.IndexOf("[Open]", StringComparison.OrdinalIgnoreCase) >= 0)
-            foreground = theme == "Monochrome" ? ConsoleColor.Gray : ConsoleColor.DarkYellow;
+            foreground = GetThemeWarningColor();
         else if (row.IndexOf("Number:", StringComparison.OrdinalIgnoreCase) >= 0 ||
             row.IndexOf("Location:", StringComparison.OrdinalIgnoreCase) >= 0 ||
             row.IndexOf("INC:", StringComparison.OrdinalIgnoreCase) >= 0 ||
             row.IndexOf("Notes:", StringComparison.OrdinalIgnoreCase) >= 0)
-            foreground = theme == "Monochrome" ? ConsoleColor.Gray : ConsoleColor.DarkCyan;
+            foreground = GetThemeLabelColor();
         else if (row.IndexOf("Ctrl+", StringComparison.OrdinalIgnoreCase) >= 0)
-            foreground = ConsoleColor.DarkGray;
-        if (footer && row == " " + status && theme != "Monochrome") foreground = ConsoleColor.Gray;
+            foreground = GetThemeMutedColor();
+        if (footer && row == " " + status) foreground = GetThemeForegroundColor();
         return (int)foreground | ((int)background << 4);
     }
 
@@ -1960,7 +2111,7 @@ internal static class CallNotesApp
     {
         if (key.Key == ConsoleKey.Escape || key.Key == ConsoleKey.F10) { settingsOpen = false; status = "Settings closed"; return; }
         if (key.Key == ConsoleKey.UpArrow) settingsSelection = Math.Max(0, settingsSelection - 1);
-        else if (key.Key == ConsoleKey.DownArrow) settingsSelection = Math.Min(Types.Length + 2, settingsSelection + 1);
+        else if (key.Key == ConsoleKey.DownArrow) settingsSelection = Math.Min(Types.Length + 3, settingsSelection + 1);
         else if (key.Key == ConsoleKey.LeftArrow || key.Key == ConsoleKey.RightArrow)
         {
             int direction = key.Key == ConsoleKey.LeftArrow ? -1 : 1;
@@ -1971,11 +2122,21 @@ internal static class CallNotesApp
             }
             else if (settingsSelection == 1)
             {
-                string[] themes = { "Reference", "Nord", "Monochrome" };
                 int index = Array.IndexOf(themes, theme);
                 theme = themes[(index + direction + themes.Length) % themes.Length];
                 SaveSetting("Theme", theme);
                 previousFrame = null;
+            }
+            else if (settingsSelection == Types.Length + 2)
+            {
+                int index = Array.IndexOf(editableCallTypeColors, callBoxOutlineColor);
+                int next = (Math.Max(0, index) + direction + editableCallTypeColors.Length) % editableCallTypeColors.Length;
+                ConsoleColor color = editableCallTypeColors[next];
+                if (SaveSetting("CallBoxOutlineColor", color.ToString()))
+                {
+                    callBoxOutlineColor = color;
+                    previousFrame = null;
+                }
             }
             else if (settingsSelection >= 2 && settingsSelection < Types.Length + 2)
             {
@@ -1991,7 +2152,7 @@ internal static class CallNotesApp
                 }
             }
         }
-        else if (key.Key == ConsoleKey.Enter && settingsSelection == Types.Length + 2)
+        else if (key.Key == ConsoleKey.Enter && settingsSelection == Types.Length + 3)
         {
             Console.CursorVisible = true;
             Console.SetCursorPosition(0, Math.Max(0, Console.WindowHeight - 2));
@@ -2010,7 +2171,12 @@ internal static class CallNotesApp
         {
             string settings = File.Exists(settingsFile) ? File.ReadAllText(settingsFile, Encoding.UTF8) : "{}";
             string value = ReadSettingsString(settings, "Theme");
-            if (value == "Nord" || value == "Monochrome" || value == "Reference") theme = value;
+            if (Array.IndexOf(themes, value) >= 0) theme = value;
+            string outline = ReadSettingsString(settings, "CallBoxOutlineColor");
+            ConsoleColor parsedOutline;
+            if (Enum.TryParse<ConsoleColor>(outline, true, out parsedOutline) &&
+                parsedOutline != ConsoleColor.Black && Enum.IsDefined(typeof(ConsoleColor), parsedOutline))
+                callBoxOutlineColor = parsedOutline;
             callTypeColors.Clear();
             foreach (string callType in Types)
             {
@@ -2101,10 +2267,11 @@ internal static class CallNotesApp
             CallRecord c = calls[selected];
             DateTime started;
             if (!DateTime.TryParse(c.StartTime, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out started)) started = DateTime.Now;
-            string path = Path.Combine(directory, "call-" + c.Id.ToString("D4", CultureInfo.InvariantCulture) + "-" + started.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".md");
+            string path = Path.Combine(directory, "call-" + GetDailyCallNumber(selected).ToString("D4", CultureInfo.InvariantCulture) +
+                "-" + started.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + ".md");
             using (StreamWriter writer = new StreamWriter(path, false, new UTF8Encoding(false)))
             {
-                writer.WriteLine("# Call #" + c.Id);
+                writer.WriteLine("# Call #" + GetDailyCallNumber(selected));
                 writer.WriteLine();
                 writer.WriteLine("- **Type:** " + c.Type);
                 if (!String.IsNullOrWhiteSpace(c.CallerName)) writer.WriteLine("- **Caller:** " + c.CallerName);
@@ -2137,14 +2304,14 @@ internal static class CallNotesApp
     {
         if (selected < 0) { status = "Select a call before copying"; return; }
         CopyToClipboard(BuildClipboardHeader(calls[selected]), GetNoteBuffer(selected),
-            "Copied call #" + calls[selected].Id + " to clipboard");
+            "Copied call #" + GetDailyCallNumber(selected) + " to clipboard");
     }
 
     private static void CopyNotesToClipboard()
     {
         if (selected < 0) { status = "Select a call before copying notes"; return; }
         CopyToClipboard("", GetNoteBuffer(selected),
-            "Copied notes for call #" + calls[selected].Id + " to clipboard");
+            "Copied notes for call #" + GetDailyCallNumber(selected) + " to clipboard");
     }
 
     private static void CopyToClipboard(string header, NoteBuffer note, string successMessage)
@@ -2201,7 +2368,7 @@ internal static class CallNotesApp
         bool hasStart = DateTime.TryParse(call.StartTime, CultureInfo.InvariantCulture,
             DateTimeStyles.RoundtripKind, out started);
         StringBuilder header = new StringBuilder();
-        header.Append("Call #").Append(call.Id).AppendLine();
+        header.Append("Call #").Append(GetDailyCallNumber(call)).AppendLine();
         header.Append("Type: ").Append(call.Type).AppendLine();
         if (!String.IsNullOrWhiteSpace(call.CallerName))
             header.Append("Caller: ").Append(call.CallerName).AppendLine();
@@ -2396,7 +2563,7 @@ internal static class CallNotesApp
         CallRecord c = calls[selected];
         c.Status = "Finished";
         c.EndTime = DateTime.Now.ToString("o", CultureInfo.InvariantCulture);
-        Changed("Finished call #" + c.Id);
+        Changed("Finished call #" + GetDailyCallNumber(selected));
     }
 
     private static void RequestDeleteCall()
@@ -2407,7 +2574,7 @@ internal static class CallNotesApp
             return;
         }
         deleteConfirmation = true;
-        status = "Delete call #" + calls[selected].Id + "? Press Y to confirm, N or Esc to cancel";
+        status = "Delete call #" + GetDailyCallNumber(selected) + "? Press Y to confirm, N or Esc to cancel";
     }
 
     private static void HandleDeleteConfirmationKey(ConsoleKey key)
@@ -2430,6 +2597,7 @@ internal static class CallNotesApp
             return;
         }
         int deletedId = calls[selected].Id;
+        int deletedCallNumber = GetDailyCallNumber(selected);
         calls.RemoveAt(selected);
         NoteBuffers.Remove(deletedId);
         Undo.Remove(deletedId);
@@ -2439,7 +2607,7 @@ internal static class CallNotesApp
         caret = selected >= 0 ? GetNotes(selected) : 0;
         fieldCaret = 0;
         historyTop = Math.Max(0, Math.Min(historyTop, Math.Max(0, calls.Count - 1)));
-        Changed("Deleted call #" + deletedId);
+        Changed("Deleted call #" + deletedCallNumber);
     }
 
     private static void Changed(string message)
@@ -2535,6 +2703,10 @@ internal static class CallNotesApp
             if (ReadSettingsString(colorProbe, "CallTypeColor.Support") != "Cyan" ||
                 !colorProbe.Contains("\"KeepMe\":true"))
                 throw new InvalidDataException("Call type color setting persistence self-test failed.");
+            string outlineProbe = SetJsonString(colorProbe, "CallBoxOutlineColor", "DarkGreen");
+            if (ReadSettingsString(outlineProbe, "CallBoxOutlineColor") != "DarkGreen" ||
+                !outlineProbe.Contains("\"KeepMe\":true"))
+                throw new InvalidDataException("Active call outline setting persistence self-test failed.");
             string markdownSample = @"\ / : . , < > ==== ---- KDS kds piks PIKS pos POS *DPOS dpos MSR msr ped PED datto DATTO *Store sn tn inc dns DNS 1 2 3 4 5 6 7 8 9 0 123456789 2e12e1e (qweqw) () {} [] [couldn't hear anything] (this was the fix)";
             Dictionary<string, ConsoleColor> expectedHighlights = new Dictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase)
             {
@@ -2599,6 +2771,22 @@ internal static class CallNotesApp
             try
             {
                 calls = new List<CallRecord>();
+                DateTime countTestDay = DateTime.Today;
+                List<CallRecord> countTestCalls = new List<CallRecord> {
+                    new CallRecord { StartTime = countTestDay.AddHours(9).ToString("o", CultureInfo.InvariantCulture) },
+                    new CallRecord { StartTime = countTestDay.AddHours(16).ToString("o", CultureInfo.InvariantCulture) },
+                    new CallRecord { StartTime = countTestDay.AddDays(-1).ToString("o", CultureInfo.InvariantCulture) },
+                    new CallRecord { StartTime = "not-a-date" }
+                };
+                if (CountCallsForDate(countTestCalls, countTestDay) != 2 ||
+                    CountCallsForDate(countTestCalls, countTestDay.AddDays(-1)) != 1)
+                    throw new InvalidDataException("Daily call-count self-test failed.");
+                calls.Add(new CallRecord { Id = 95, StartTime = countTestDay.AddHours(9).ToString("o", CultureInfo.InvariantCulture) });
+                calls.Add(new CallRecord { Id = 96, StartTime = countTestDay.AddDays(-1).ToString("o", CultureInfo.InvariantCulture) });
+                calls.Add(new CallRecord { Id = 97, StartTime = countTestDay.AddHours(16).ToString("o", CultureInfo.InvariantCulture) });
+                if (GetDailyCallNumber(0) != 1 || GetDailyCallNumber(1) != 1 || GetDailyCallNumber(2) != 2)
+                    throw new InvalidDataException("Per-day visible call numbering self-test failed.");
+                calls.Clear();
                 for (int i = 1; i <= 3; i++)
                     calls.Add(new CallRecord { Id = i, Type = i == 2 ? "Internal" : "Support", Status = i == 1 ? "Finished" : "Open",
                         StartTime = "2026-01-01T00:00:00", EndTime = i == 1 ? "2026-01-01T00:02:05" : "",
@@ -2758,9 +2946,37 @@ internal static class CallNotesApp
                 int selectedBorderStyle = GetRowStyle(normalSize[10], 10);
                 int otherBorderStyle = GetRowStyle(normalSize[2], 2);
                 if (((selectedStyle >> 4) & 0x0F) != (int)ConsoleColor.Black ||
-                    (selectedBorderStyle & 0x0F) != (int)ConsoleColor.DarkCyan ||
+                    (selectedBorderStyle & 0x0F) != (int)GetBoldOutlineColor(callBoxOutlineColor) ||
                     (otherBorderStyle & 0x0F) != (int)ConsoleColor.DarkGray)
                     throw new InvalidDataException("Reference theme selected-card palette self-test failed.");
+                ConsoleColor originalOutlineColor = callBoxOutlineColor;
+                try
+                {
+                    callBoxOutlineColor = ConsoleColor.DarkGreen;
+                    if (GetBoldOutlineColor(callBoxOutlineColor) != ConsoleColor.Green ||
+                        (GetRowStyle(normalSize[10], 10) & 0x0F) != (int)ConsoleColor.Green ||
+                        (GetRowStyle(normalSize[2], 2) & 0x0F) != (int)ConsoleColor.DarkGray)
+                        throw new InvalidDataException("Active outline color/boldness self-test failed.");
+                    string[] expectedThemes = {
+                        "Reference", "Campbell", "Nord", "One Half Dark",
+                        "Solarized Dark", "Tango Dark", "Vintage", "Monochrome"
+                    };
+                    foreach (string expectedTheme in expectedThemes)
+                    {
+                        if (Array.IndexOf(themes, expectedTheme) < 0)
+                            throw new InvalidDataException("Theme option missing: " + expectedTheme);
+                        theme = expectedTheme;
+                        if (GetThemeBorderColor() == ConsoleColor.Black ||
+                            GetThemeAccentColor() == ConsoleColor.Black ||
+                            GetThemeLabelColor() == ConsoleColor.Black)
+                            throw new InvalidDataException("Theme palette contains an unusable black foreground: " + expectedTheme);
+                    }
+                }
+                finally
+                {
+                    callBoxOutlineColor = originalOutlineColor;
+                    theme = "Reference";
+                }
                 CallRecord finishedFixture = calls[0];
                 if (GetHeadingColor("Support", finishedFixture) != ConsoleColor.DarkCyan ||
                     GetHeadingColor("[Finished]", finishedFixture) != ConsoleColor.DarkGreen ||

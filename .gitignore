@@ -1,0 +1,8 @@
+# Build output
+CallNotes.exe
+
+# Local application data
+/data/
+calls.json
+settings.json
+exports/
