@@ -2,6 +2,9 @@
 
 A lightweight, keyboard-driven terminal app for recording support calls. Calls are stored locally; no accounts, network services, or installer are required.
 
+<img width="1235" height="644" alt="image" src="https://github.com/user-attachments/assets/503af581-f411-401c-bf38-822f9df692dd" />
+
+
 ## Quick start
 
 Run `CallNotes.exe` from PowerShell, Command Prompt, or Windows Terminal.
