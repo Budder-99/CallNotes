@@ -569,7 +569,9 @@ internal static class CallNotesApp
     private static int CallTypeColorStart { get { return ShortcutOrderStart + Types.Length; } }
     private static int OutlineColorSetting { get { return CallTypeColorStart + Types.Length; } }
     private static int TextColorSettingStart { get { return OutlineColorSetting + 1; } }
-    private static int DataDirectorySetting { get { return TextColorSettingStart + textColorKeys.Length; } }
+    private static int CustomWordAddSetting { get { return TextColorSettingStart + textColorKeys.Length; } }
+    private static int CustomWordStart { get { return CustomWordAddSetting + 1; } }
+    private static int DataDirectorySetting { get { return CustomWordStart + customWordHighlights.Count; } }
     // Buffers are keyed by call ID so reordering or deleting list entries does
     // not accidentally attach an edited note to a different call.
     private static readonly Dictionary<int, NoteBuffer> NoteBuffers = new Dictionary<int, NoteBuffer>();
@@ -615,7 +617,8 @@ internal static class CallNotesApp
     private static readonly Regex noteHighlightPattern = new Regex(
         @"(?<orange>#raise\b)|" +
         @"(?<blue>\b(?:msr|ped|datto|dpos)\b)|" +
-        @"(?<pink>\b(?:kds|piks|pos|sn|tn|inc|dns|tr)\b|\b(?:inc)?\d+(?::\d{2})?(?:/\d{2,4})?\b|\[[^\]\r\n]*\])|" +
+        @"(?<number>\b(?:inc)?\d+(?::\d{2})?(?:/\d{2,4})?\b)|" +
+        @"(?<pink>\b(?:kds|piks|pos|sn|tn|inc|dns|tr)\b|\[[^\]\r\n]*\])|" +
         @"(?<green>\([^()\r\n]*\))|(?<cyan>[\\/:.,<>])|(?<muted>={2,}|-{2,}|^_+$)|" +
         @"(?<marker>[\[\]{}*#])",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Multiline);
@@ -635,14 +638,17 @@ internal static class CallNotesApp
     private static readonly string[] textColorKeys = {
         "TextColor.Heading", "TextColor.Body", "TextColor.Label",
         "TextColor.Status", "TextColor.Help", "TextColor.Muted",
-        "TextColor.NoteHighlight"
+        "TextColor.Number", "TextColor.NoteHighlight"
     };
     private static readonly string[] textColorLabels = {
         "Heading text", "Main text", "Field labels", "Status text",
-        "Help and footer", "Secondary text", "Note highlights"
+        "Help and footer", "Secondary text", "Numbers", "Note highlights"
     };
     private static readonly Dictionary<string, ConsoleColor> textColors =
         new Dictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase);
+    private static readonly SortedDictionary<string, ConsoleColor> customWordHighlights =
+        new SortedDictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase);
+    private static Regex activeNoteHighlightPattern = noteHighlightPattern;
     private static readonly Dictionary<string, ConsoleColor> callTypeColors =
         new Dictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<int, ConsoleColor> settingsColorRows =
@@ -1314,7 +1320,7 @@ internal static class CallNotesApp
         int position = 0;
         if (!finished)
         {
-            foreach (Match match in noteHighlightPattern.Matches(visible))
+            foreach (Match match in activeNoteHighlightPattern.Matches(visible))
             {
                 if (match.Index > position)
                 {
@@ -1572,7 +1578,20 @@ internal static class CallNotesApp
 
     private static ConsoleColor GetNoteHighlightColor(Match match)
     {
+        if (match.Groups["custom"].Success)
+        {
+            ConsoleColor customColor;
+            if (customWordHighlights.TryGetValue(match.Value, out customColor))
+                return customColor;
+        }
+        if (match.Groups["number"].Success)
+            return GetConfiguredTextColor("TextColor.Number", GetDefaultNumberHighlightColor());
         return GetConfiguredTextColor("TextColor.NoteHighlight", GetDefaultNoteHighlightColor(match));
+    }
+
+    private static ConsoleColor GetDefaultNumberHighlightColor()
+    {
+        return theme == "Monochrome" ? GetThemeForegroundColor() : ConsoleColor.Magenta;
     }
 
     private static ConsoleColor GetDefaultNoteHighlightColor(Match match)
@@ -1753,6 +1772,148 @@ internal static class CallNotesApp
         previousFrame = null;
         status = "Call type shortcut order saved";
         return true;
+    }
+
+    private static bool IsValidCustomHighlightWord(string word)
+    {
+        return !String.IsNullOrWhiteSpace(word) && word.Length <= 128 &&
+            word.IndexOf('\r') < 0 && word.IndexOf('\n') < 0;
+    }
+
+    private static string SerializeCustomWordHighlights(SortedDictionary<string, ConsoleColor> rules)
+    {
+        List<string> entries = new List<string>();
+        foreach (KeyValuePair<string, ConsoleColor> rule in rules)
+            entries.Add(Convert.ToBase64String(Encoding.UTF8.GetBytes(rule.Key)) + ":" + rule.Value.ToString());
+        return String.Join(";", entries.ToArray());
+    }
+
+    private static bool TryParseCustomWordHighlights(string value, out SortedDictionary<string, ConsoleColor> rules)
+    {
+        SortedDictionary<string, ConsoleColor> parsed =
+            new SortedDictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase);
+        if (!String.IsNullOrEmpty(value))
+        {
+            foreach (string entry in value.Split(';'))
+            {
+                int separator = entry.LastIndexOf(':');
+                if (separator <= 0 || separator == entry.Length - 1) { rules = null; return false; }
+                string word;
+                try
+                {
+                    word = new UTF8Encoding(false, true).GetString(
+                        Convert.FromBase64String(entry.Substring(0, separator)));
+                }
+                catch (FormatException) { rules = null; return false; }
+                catch (DecoderFallbackException) { rules = null; return false; }
+                ConsoleColor color;
+                if (!IsValidCustomHighlightWord(word) ||
+                    !Enum.TryParse<ConsoleColor>(entry.Substring(separator + 1), true, out color) ||
+                    color == ConsoleColor.Black || !Enum.IsDefined(typeof(ConsoleColor), color) ||
+                    parsed.ContainsKey(word))
+                {
+                    rules = null;
+                    return false;
+                }
+                parsed.Add(word, color);
+            }
+        }
+        rules = parsed;
+        return true;
+    }
+
+    private static void RebuildActiveNoteHighlightPattern()
+    {
+        if (customWordHighlights.Count == 0)
+        {
+            activeNoteHighlightPattern = noteHighlightPattern;
+            return;
+        }
+        List<string> words = new List<string>(customWordHighlights.Keys);
+        words.Sort(delegate(string left, string right)
+        {
+            int byLength = right.Length.CompareTo(left.Length);
+            return byLength != 0 ? byLength : String.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+        });
+        List<string> alternatives = new List<string>();
+        foreach (string word in words) alternatives.Add(Regex.Escape(word));
+        string customPattern = @"(?<custom>(?<![A-Za-z0-9_])(?:" +
+            String.Join("|", alternatives.ToArray()) + @")(?![A-Za-z0-9_]))";
+        activeNoteHighlightPattern = new Regex(customPattern + "|(?:" +
+            noteHighlightPattern.ToString() + ")", noteHighlightPattern.Options);
+    }
+
+    private static bool SaveCustomWordHighlights(SortedDictionary<string, ConsoleColor> rules)
+    {
+        if (!SaveSetting("CustomWordHighlights", SerializeCustomWordHighlights(rules))) return false;
+        customWordHighlights.Clear();
+        foreach (KeyValuePair<string, ConsoleColor> rule in rules)
+            customWordHighlights.Add(rule.Key, rule.Value);
+        RebuildActiveNoteHighlightPattern();
+        previousFrame = null;
+        return true;
+    }
+
+    private static string GetCustomWordAt(int index)
+    {
+        if (index < 0 || index >= customWordHighlights.Count) return null;
+        int current = 0;
+        foreach (string word in customWordHighlights.Keys)
+            if (current++ == index) return word;
+        return null;
+    }
+
+    private static void PromptCustomWordHighlight(string existingWord)
+    {
+        ConsoleColor currentColor = ConsoleColor.Yellow;
+        bool editing = !String.IsNullOrEmpty(existingWord) &&
+            customWordHighlights.TryGetValue(existingWord, out currentColor);
+        string word = ReadSettingsPrompt("Word/phrase to highlight (blank cancels): ");
+        if (String.IsNullOrWhiteSpace(word)) { status = "Highlight unchanged"; return; }
+        word = word.Trim();
+        if (!IsValidCustomHighlightWord(word))
+        {
+            status = "Highlight word must be 1-128 characters without line breaks";
+            return;
+        }
+
+        string colorInput = ReadSettingsPrompt("Highlight color name (e.g. Cyan; blank keeps current/default): ");
+        ConsoleColor color = currentColor;
+        if (!String.IsNullOrWhiteSpace(colorInput) &&
+            (!Enum.TryParse<ConsoleColor>(colorInput.Trim(), true, out color) ||
+             color == ConsoleColor.Black || !Enum.IsDefined(typeof(ConsoleColor), color)))
+        {
+            status = "Unknown highlight color: " + colorInput.Trim();
+            return;
+        }
+
+        SortedDictionary<string, ConsoleColor> proposed =
+            new SortedDictionary<string, ConsoleColor>(customWordHighlights, StringComparer.OrdinalIgnoreCase);
+        if (editing) proposed.Remove(existingWord);
+        proposed[word] = color;
+        if (SaveCustomWordHighlights(proposed))
+        {
+            List<string> words = new List<string>(customWordHighlights.Keys);
+            int index = words.FindIndex(delegate(string candidate)
+            {
+                return String.Equals(candidate, word, StringComparison.OrdinalIgnoreCase);
+            });
+            settingsSelection = CustomWordStart + index;
+            status = "Highlight saved: " + word + " (" + color + ")";
+        }
+    }
+
+    private static string ReadSettingsPrompt(string prompt)
+    {
+        Console.CursorVisible = true;
+        int row = Math.Max(0, Console.WindowHeight - 2);
+        Console.SetCursorPosition(0, row);
+        Console.Write(new string(' ', Math.Max(1, Console.WindowWidth - 1)));
+        Console.SetCursorPosition(0, row);
+        Console.Write(prompt);
+        string input = Console.ReadLine();
+        previousFrame = null;
+        return input;
     }
 
     private static string ReadDefaultCallType()
@@ -1951,7 +2112,9 @@ internal static class CallNotesApp
             case 3: return GetThemeWarningColor();
             case 4: return GetConfiguredTextColor("TextColor.Help", GetThemeMutedColor());
             case 5: return GetThemeMutedColor();
-            case 6: return GetNoteHighlightColor(noteHighlightPattern.Match("KDS"));
+            case 6: return GetConfiguredTextColor("TextColor.Number", GetDefaultNumberHighlightColor());
+            case 7: return GetConfiguredTextColor("TextColor.NoteHighlight",
+                GetDefaultNoteHighlightColor(noteHighlightPattern.Match("KDS")));
             default: throw new ArgumentOutOfRangeException("index");
         }
     }
@@ -1959,7 +2122,7 @@ internal static class CallNotesApp
     // Settings and search screens share the same terminal renderer.
     private static void BuildSettingsRows(string[] rows, int width, int height)
     {
-        rows[1] = " SETTINGS  (Up/Down choose; Left/Right change or reorder; Enter edits folder; Esc/F10 closes)";
+        rows[1] = " SETTINGS  (Up/Down choose; Left/Right change/reorder; Enter edits; Delete removes highlight)";
         int outlineItem = OutlineColorSetting;
         int textColorStart = TextColorSettingStart;
         int dataDirectoryItem = DataDirectorySetting;
@@ -1978,6 +2141,9 @@ internal static class CallNotesApp
         menuEntries.Add(-5);
         for (int i = 0; i < textColorKeys.Length; i++) menuEntries.Add(textColorStart + i);
         menuEntries.Add(-6);
+        menuEntries.Add(CustomWordAddSetting);
+        for (int i = 0; i < customWordHighlights.Count; i++) menuEntries.Add(CustomWordStart + i);
+        menuEntries.Add(-7);
         menuEntries.Add(dataDirectoryItem);
 
         int selectedEntry = menuEntries.IndexOf(settingsSelection);
@@ -1992,7 +2158,7 @@ internal static class CallNotesApp
             {
                 string[] categories = {
                     "GENERAL", "CALL TYPE SHORTCUTS", "CALL TYPE COLORS",
-                    "CALL APPEARANCE", "TEXT COLORS", "STORAGE"
+                    "CALL APPEARANCE", "TEXT COLORS", "NOTE HIGHLIGHTS", "STORAGE"
                 };
                 rows[row] = "  -- " + categories[-setting - 1] + " --";
                 continue;
@@ -2020,11 +2186,20 @@ internal static class CallNotesApp
                 rows[row] = prefix + "Active call outline: " + callBoxOutlineColor + " (bold)";
                 settingsColorRows[row] = GetBoldOutlineColor(callBoxOutlineColor);
             }
-            else if (setting >= textColorStart && setting < dataDirectoryItem)
+            else if (setting >= textColorStart && setting < CustomWordAddSetting)
             {
                 int colorIndex = setting - textColorStart;
                 ConsoleColor color = GetTextColorSetting(colorIndex);
                 rows[row] = prefix + textColorLabels[colorIndex] + " color: " + color;
+                settingsColorRows[row] = color;
+            }
+            else if (setting == CustomWordAddSetting)
+                rows[row] = prefix + "Add word or phrase highlight...";
+            else if (setting >= CustomWordStart && setting < dataDirectoryItem)
+            {
+                string word = GetCustomWordAt(setting - CustomWordStart);
+                ConsoleColor color = customWordHighlights[word];
+                rows[row] = prefix + "\"" + word + "\" highlight: " + color + " (Enter edit, Delete remove)";
                 settingsColorRows[row] = color;
             }
             else
@@ -2032,7 +2207,7 @@ internal static class CallNotesApp
                     (String.Equals(dataDirectory, GetDefaultDataDirectory(), StringComparison.OrdinalIgnoreCase)
                         ? ".\\data" : dataDirectory);
         }
-        rows[height - 2] = " Up/Down choose | Left/Right change | Enter edit folder | Esc/F10 close";
+        rows[height - 2] = " Up/Down choose | Left/Right change | Enter edit | Delete remove highlight | Esc/F10 close";
         rows[height - 1] = " " + status;
     }
 
@@ -2270,6 +2445,22 @@ internal static class CallNotesApp
         if (key.Key == ConsoleKey.UpArrow) settingsSelection = Math.Max(0, settingsSelection - 1);
         else if (key.Key == ConsoleKey.DownArrow)
             settingsSelection = Math.Min(DataDirectorySetting, settingsSelection + 1);
+        else if (key.Key == ConsoleKey.Delete &&
+            settingsSelection >= CustomWordStart && settingsSelection < DataDirectorySetting)
+        {
+            string word = GetCustomWordAt(settingsSelection - CustomWordStart);
+            if (word != null)
+            {
+                SortedDictionary<string, ConsoleColor> proposed =
+                    new SortedDictionary<string, ConsoleColor>(customWordHighlights, StringComparer.OrdinalIgnoreCase);
+                proposed.Remove(word);
+                if (SaveCustomWordHighlights(proposed))
+                {
+                    settingsSelection = Math.Min(settingsSelection, DataDirectorySetting);
+                    status = "Highlight removed: " + word;
+                }
+            }
+        }
         else if (key.Key == ConsoleKey.LeftArrow || key.Key == ConsoleKey.RightArrow)
         {
             int direction = key.Key == ConsoleKey.LeftArrow ? -1 : 1;
@@ -2302,7 +2493,7 @@ internal static class CallNotesApp
                 }
             }
             else if (settingsSelection >= TextColorSettingStart &&
-                settingsSelection < DataDirectorySetting)
+                settingsSelection < CustomWordAddSetting)
             {
                 int colorIndex = settingsSelection - TextColorSettingStart;
                 int index = Array.IndexOf(editableCallTypeColors, GetTextColorSetting(colorIndex));
@@ -2329,8 +2520,12 @@ internal static class CallNotesApp
                 }
             }
         }
+        else if (key.Key == ConsoleKey.Enter && settingsSelection == CustomWordAddSetting)
+            PromptCustomWordHighlight(null);
         else if (key.Key == ConsoleKey.Enter &&
-            settingsSelection == DataDirectorySetting)
+            settingsSelection >= CustomWordStart && settingsSelection < DataDirectorySetting)
+            PromptCustomWordHighlight(GetCustomWordAt(settingsSelection - CustomWordStart));
+        else if (key.Key == ConsoleKey.Enter && settingsSelection == DataDirectorySetting)
         {
             Console.CursorVisible = true;
             Console.SetCursorPosition(0, Math.Max(0, Console.WindowHeight - 2));
@@ -2367,6 +2562,15 @@ internal static class CallNotesApp
                     parsed != ConsoleColor.Black && Enum.IsDefined(typeof(ConsoleColor), parsed))
                     textColors[key] = parsed;
             }
+            SortedDictionary<string, ConsoleColor> configuredHighlights;
+            if (TryParseCustomWordHighlights(ReadSettingsString(settings, "CustomWordHighlights"),
+                out configuredHighlights))
+            {
+                customWordHighlights.Clear();
+                foreach (KeyValuePair<string, ConsoleColor> rule in configuredHighlights)
+                    customWordHighlights.Add(rule.Key, rule.Value);
+            }
+            RebuildActiveNoteHighlightPattern();
             callTypeColors.Clear();
             foreach (string callType in Types)
             {
@@ -2837,7 +3041,12 @@ internal static class CallNotesApp
             {
                 CallWriter.Write(temporary, snapshot);
                 // Replace only after the full JSON file has been written.
-                if (File.Exists(dataFile)) File.Replace(temporary, dataFile, null);
+                if (File.Exists(dataFile))
+                {
+                    try { File.Replace(temporary, dataFile, null); }
+                    catch (UnauthorizedAccessException) { CopyCompletedSave(temporary); }
+                    catch (IOException) { CopyCompletedSave(temporary); }
+                }
                 else File.Move(temporary, dataFile);
             }
             catch
@@ -2847,6 +3056,12 @@ internal static class CallNotesApp
             }
         });
         savedVersion = snapshotVersion;
+    }
+
+    private static void CopyCompletedSave(string temporary)
+    {
+        File.Copy(temporary, dataFile, true);
+        File.Delete(temporary);
     }
 
     private static void CompleteSaveIfReady()
@@ -2899,10 +3114,64 @@ internal static class CallNotesApp
                 throw new InvalidDataException("Active call outline setting persistence self-test failed.");
             string textColorProbe = SetJsonString(outlineProbe, "TextColor.Heading", "Cyan");
             textColorProbe = SetJsonString(textColorProbe, "TextColor.Status", "Yellow");
+            textColorProbe = SetJsonString(textColorProbe, "TextColor.Number", "Green");
             if (ReadSettingsString(textColorProbe, "TextColor.Heading") != "Cyan" ||
                 ReadSettingsString(textColorProbe, "TextColor.Status") != "Yellow" ||
+                ReadSettingsString(textColorProbe, "TextColor.Number") != "Green" ||
                 !textColorProbe.Contains("\"KeepMe\":true"))
                 throw new InvalidDataException("Text color settings persistence self-test failed.");
+            SortedDictionary<string, ConsoleColor> customProbe =
+                new SortedDictionary<string, ConsoleColor>(StringComparer.OrdinalIgnoreCase);
+            customProbe.Add("blue phrase", ConsoleColor.Cyan);
+            customProbe.Add("INC", ConsoleColor.Yellow);
+            string serializedHighlights = SerializeCustomWordHighlights(customProbe);
+            SortedDictionary<string, ConsoleColor> parsedHighlights;
+            if (!TryParseCustomWordHighlights(serializedHighlights, out parsedHighlights) ||
+                parsedHighlights.Count != 2 || parsedHighlights["BLUE PHRASE"] != ConsoleColor.Cyan ||
+                parsedHighlights["inc"] != ConsoleColor.Yellow ||
+                TryParseCustomWordHighlights("%%%:Cyan", out parsedHighlights) ||
+                TryParseCustomWordHighlights(Convert.ToBase64String(Encoding.UTF8.GetBytes("bad")) + ":Black",
+                    out parsedHighlights))
+                throw new InvalidDataException("Custom word highlight serialization/validation self-test failed.");
+            SortedDictionary<string, ConsoleColor> oldHighlights =
+                new SortedDictionary<string, ConsoleColor>(customWordHighlights, StringComparer.OrdinalIgnoreCase);
+            customWordHighlights.Clear();
+            foreach (KeyValuePair<string, ConsoleColor> rule in customProbe) customWordHighlights.Add(rule.Key, rule.Value);
+            RebuildActiveNoteHighlightPattern();
+            MatchCollection customMatches = activeNoteHighlightPattern.Matches("BLUE PHRASE blueprint INC INC001");
+            if (customMatches.Count != 3 || customMatches[0].Value != "BLUE PHRASE" ||
+                GetNoteHighlightColor(customMatches[0]) != ConsoleColor.Cyan ||
+                customMatches[1].Value != "INC" ||
+                GetNoteHighlightColor(customMatches[1]) != ConsoleColor.Yellow ||
+                customMatches[2].Value != "INC001")
+                throw new InvalidDataException("Custom word highlight matching/boundary self-test failed.");
+            customWordHighlights.Clear();
+            foreach (KeyValuePair<string, ConsoleColor> rule in oldHighlights) customWordHighlights.Add(rule.Key, rule.Value);
+            RebuildActiveNoteHighlightPattern();
+            textColors["TextColor.Number"] = ConsoleColor.Green;
+            Match numberMatch = activeNoteHighlightPattern.Match("12345");
+            if (!numberMatch.Success || GetNoteHighlightColor(numberMatch) != ConsoleColor.Green)
+                throw new InvalidDataException("Configurable number highlight color self-test failed.");
+            textColors.Remove("TextColor.Number");
+
+            string saveDestination = path + ".copy";
+            string saveTemporary = path + ".tmp";
+            string oldDataFile = dataFile;
+            try
+            {
+                File.WriteAllText(saveDestination, "old");
+                File.WriteAllText(saveTemporary, "completed");
+                dataFile = saveDestination;
+                CopyCompletedSave(saveTemporary);
+                if (File.ReadAllText(saveDestination) != "completed" || File.Exists(saveTemporary))
+                    throw new InvalidDataException("Completed-save overwrite fallback self-test failed.");
+            }
+            finally
+            {
+                dataFile = oldDataFile;
+                if (File.Exists(saveDestination)) File.Delete(saveDestination);
+                if (File.Exists(saveTemporary)) File.Delete(saveTemporary);
+            }
             string typeOrderProbe = SetJsonString(textColorProbe, "CallTypeOrder", "Other,Support,Internal");
             string[] parsedTypeOrder;
             string[] movedTypeOrder;
