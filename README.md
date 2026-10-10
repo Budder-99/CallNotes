@@ -18,14 +18,6 @@ By default, call history and settings are saved in a `data` folder beside the ex
 .\CallNotes.exe --data-dir "D:\CallNotesData"
 ```
 
-Build from source on Windows:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Build-CallNotes.ps1
-```
-
-The build uses the C# compiler included with .NET Framework on Windows. The app can be run as a standalone, but is better within a shell.
-
 ## Features
 
 - Create calls instantly with a timestamp; notes save automatically.
@@ -65,6 +57,15 @@ The build uses the C# compiler included with .NET Framework on Windows. The app 
 | `Ctrl+S` | Save now |
 | `Ctrl+Q` | Save and quit |
 | `Ctrl+D` | Delete the selected call (confirmation required) |
+
+Build from source on Windows:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Build-CallNotes.ps1
+```
+
+The build uses the C# compiler included with .NET Framework on Windows. The app can be run as a standalone, but is better within a shell.
+
 
 ## Data and diagnostics
 
