@@ -1,13 +1,16 @@
 # CallNotes
 
-A lightweight, keyboard-driven terminal app for recording support calls. Calls are stored locally; no accounts, network services, or installer are required.
+A lightweight, keyboard-driven terminal app for quickly capturing information during support calls. Calls are stored locally; no accounts, network services, or installer are required.
+Vibe coded with visual studio code agent
 
 <img width="1235" height="644" alt="image" src="https://github.com/user-attachments/assets/503af581-f411-401c-bf38-822f9df692dd" />
 
 
 ## Quick start
 
-Run `CallNotes.exe` from PowerShell, Command Prompt, or Windows Terminal.
+CD to the directory where call notes is downloaded/stored
+
+in Powershell or CMD, Run `./CallNotes.exe` 
 
 By default, call history and settings are saved in a `data` folder beside the executable. This keeps the generic release self-contained and separate from other CallNotes data. To use a different folder for one run:
 
@@ -21,7 +24,7 @@ Build from source on Windows:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Build-CallNotes.ps1
 ```
 
-The build uses the C# compiler included with .NET Framework on Windows. The app itself is a standalone executable and does not require PowerShell.
+The build uses the C# compiler included with .NET Framework on Windows. The app can be run as a standalone, but is better within a shell.
 
 ## Features
 
